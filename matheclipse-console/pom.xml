@@ -1,0 +1,398 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<!-- Standalone project: deliberately has no <parent>. It resolves
+		matheclipse-core from the repositories declared below, so it can be built
+		on its own without the org.matheclipse reactor. -->
+	<groupId>org.matheclipse</groupId>
+	<artifactId>matheclipse-console</artifactId>
+	<version>3.3.0-SNAPSHOT</version>
+	<packaging>jar</packaging>
+
+	<name>${project.groupId}:${project.artifactId}</name>
+	<description>Command-line REPL for Symja with auto-complete and syntax
+		highlighting</description>
+	<url>https://github.com/axkr/symja_android_library</url>
+
+	<licenses>
+		<license>
+			<name>GNU General Public License, Version 3</name>
+			<url>https://www.gnu.org/licenses/gpl-3.0.html</url>
+			<distribution>repo</distribution>
+		</license>
+		<license>
+			<name>GNU Lesser General Public License, Version 3</name>
+			<url>https://www.gnu.org/licenses/lgpl-3.0.html</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+
+	<developers>
+		<developer>
+			<id>axkr</id>
+			<name>Axel Kramer</name>
+			<email>axelclk@gmail.com</email>
+			<organization>Symja.org</organization>
+			<organizationUrl>https://github.com/axkr</organizationUrl>
+		</developer>
+	</developers>
+
+	<scm>
+		<connection>scm:git:git://github.com/axkr/symja_android_library.git</connection>
+		<developerConnection>scm:git:git@github.com:axkr/symja_android_library.git</developerConnection>
+		<url>https://github.com/axkr/symja_android_library.git</url>
+		<tag>HEAD</tag>
+	</scm>
+
+	<issueManagement>
+		<system>GitHub</system>
+		<url>https://github.com/axkr/symja_android_library/issues</url>
+	</issueManagement>
+
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<!-- Java 11 bytecode, matching matheclipse-core. Building still needs a
+			JDK 17+, but the resulting jar runs on any JRE 11 or newer. Do not
+			raise this without a reason: it is what the reactor build produced, and
+			bumping it locks out Java 11 users at runtime. -->
+		<maven.compiler.release>11</maven.compiler.release>
+		<!-- Version of the Symja library to build against. Kept separate from
+			${project.version} so the console can be pinned to a released core. -->
+		<symja.version>3.3.0-SNAPSHOT</symja.version>
+		<jline.version>3.26.1</jline.version>
+		<jna.version>5.14.0</jna.version>
+		<commons-io.version>2.22.0</commons-io.version>
+		<main.class>org.matheclipse.console.MMAConsole</main.class>
+	</properties>
+
+	<!-- Required for standalone resolution: matheclipse-core is published as a
+		snapshot to the Central snapshot repository, and it depends on
+		hipparchus 4.1-SNAPSHOT which only lives in the orekit repository. -->
+	<repositories>
+		<repository>
+			<id>orekit</id>
+			<url>https://packages.orekit.org/repository/maven-snapshots/</url>
+			<releases>
+				<enabled>false</enabled>
+			</releases>
+			<snapshots>
+				<enabled>true</enabled>
+			</snapshots>
+		</repository>
+		<repository>
+			<id>maven-central-snapshots</id>
+			<url>https://central.sonatype.com/repository/maven-snapshots/</url>
+			<layout>default</layout>
+			<releases>
+				<enabled>false</enabled>
+			</releases>
+			<snapshots>
+				<enabled>true</enabled>
+			</snapshots>
+		</repository>
+	</repositories>
+
+	<!-- Without the org.matheclipse parent's dependencyManagement these two
+		would drift to the versions matheclipse-core happens to pull in
+		transitively (slf4j-api 1.7.36, fastutil-core 8.5.19). Pinned here so the
+		standalone build produces the same classpath as the reactor build. -->
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.slf4j</groupId>
+				<artifactId>slf4j-api</artifactId>
+				<version>2.0.18</version>
+			</dependency>
+			<dependency>
+				<groupId>it.unimi.dsi</groupId>
+				<artifactId>fastutil-core</artifactId>
+				<version>8.5.18</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+
+	<dependencies>
+		<dependency>
+			<groupId>org.matheclipse</groupId>
+			<artifactId>matheclipse-core</artifactId>
+			<version>${symja.version}</version>
+		</dependency>
+
+		<!-- Used directly by MMAConsole (StringBuilderWriter); declared
+			explicitly rather than relied upon transitively via matheclipse-core. -->
+		<dependency>
+			<groupId>commons-io</groupId>
+			<artifactId>commons-io</artifactId>
+			<version>${commons-io.version}</version>
+		</dependency>
+
+		<dependency>
+			<groupId>org.jline</groupId>
+			<artifactId>jline</artifactId>
+			<version>${jline.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.jline</groupId>
+			<artifactId>jline-terminal-jansi</artifactId>
+			<version>${jline.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.jline</groupId>
+			<artifactId>jline-terminal-jna</artifactId>
+			<version>${jline.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>net.java.dev.jna</groupId>
+			<artifactId>jna</artifactId>
+			<version>${jna.version}</version>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.15.0</version>
+				<configuration>
+					<release>${maven.compiler.release}</release>
+				</configuration>
+			</plugin>
+
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-jar-plugin</artifactId>
+				<version>3.5.0</version>
+				<configuration>
+					<archive>
+						<manifest>
+							<mainClass>${main.class}</mainClass>
+						</manifest>
+					</archive>
+				</configuration>
+			</plugin>
+
+			<!-- Builds the single "uber" jar published to GitHub releases. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-shade-plugin</artifactId>
+				<version>3.6.1</version>
+				<executions>
+					<execution>
+						<id>shade-uber-jar</id>
+						<phase>package</phase>
+						<goals>
+							<goal>shade</goal>
+						</goals>
+						<configuration>
+							<createDependencyReducedPom>false</createDependencyReducedPom>
+							<shadedArtifactAttached>true</shadedArtifactAttached>
+							<shadedClassifierName>all</shadedClassifierName>
+							<filters>
+								<filter>
+									<artifact>*:*</artifact>
+									<excludes>
+										<!-- janino and commons-compiler are signed jars; keeping
+											their signature files makes the uber jar fail at startup
+											with "Invalid signature file digest". -->
+										<exclude>META-INF/*.SF</exclude>
+										<exclude>META-INF/*.DSA</exclude>
+										<exclude>META-INF/*.RSA</exclude>
+										<exclude>META-INF/MANIFEST.MF</exclude>
+										<exclude>META-INF/INDEX.LIST</exclude>
+										<!-- Module descriptors are meaningless on the classpath and
+											collide between dependencies. -->
+										<exclude>module-info.class</exclude>
+										<exclude>META-INF/versions/*/module-info.class</exclude>
+									</excludes>
+								</filter>
+							</filters>
+							<transformers>
+								<!-- JLine discovers its terminal backends (jansi / jna /
+									native) through META-INF/services. -->
+								<transformer
+									implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+								<transformer
+									implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer" />
+								<transformer
+									implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer" />
+								<transformer
+									implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+									<mainClass>${main.class}</mainClass>
+									<manifestEntries>
+										<!-- Many dependencies (guava, jackson, log4j-api, apfloat,
+											commons-*, jansi, ...) are multi-release jars, so the
+											merged jar has to be flagged as one too. -->
+										<Multi-Release>true</Multi-Release>
+										<Implementation-Title>${project.artifactId}</Implementation-Title>
+										<Implementation-Version>${project.version}</Implementation-Version>
+									</manifestEntries>
+								</transformer>
+							</transformers>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+
+			<!-- Builds the downloadable distribution ZIP (uber jar + launcher
+				scripts + README + licenses). Declared after the shade plugin so it
+				runs later in the same 'package' phase, once the uber jar exists. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-assembly-plugin</artifactId>
+				<version>3.7.1</version>
+				<executions>
+					<execution>
+						<id>distribution-zip</id>
+						<phase>package</phase>
+						<goals>
+							<goal>single</goal>
+						</goals>
+						<configuration>
+							<descriptors>
+								<descriptor>src/assembly/distribution.xml</descriptor>
+							</descriptors>
+							<finalName>symja-console-${project.version}</finalName>
+							<appendAssemblyId>false</appendAssemblyId>
+							<tarLongFileMode>posix</tarLongFileMode>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+
+			<!-- Convenience launcher for local development:
+				target/appassembler/bin/symja -->
+			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>appassembler-maven-plugin</artifactId>
+				<version>2.1.0</version>
+				<executions>
+					<execution>
+						<phase>package</phase>
+						<goals>
+							<goal>assemble</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<repositoryLayout>flat</repositoryLayout>
+					<repositoryName>lib</repositoryName>
+					<assembleDirectory>${project.build.directory}/appassembler</assembleDirectory>
+					<useWildcardClassPath>true</useWildcardClassPath>
+					<programs>
+						<program>
+							<mainClass>${main.class}</mainClass>
+							<id>symja</id>
+						</program>
+					</programs>
+				</configuration>
+			</plugin>
+
+			<plugin>
+				<groupId>org.jreleaser</groupId>
+				<artifactId>jreleaser-maven-plugin</artifactId>
+				<version>1.12.0</version>
+				<configuration>
+					<jreleaser>
+						<project>
+							<description>Symja MMA Language Console App</description>
+							<website>https://github.com/axkr/symja_android_library</website>
+							<docsUrl>
+								https://github.com/axkr/symja_android_library/wiki/Console-apps</docsUrl>
+							<copyright>2026 Axel Kramer</copyright>
+							<java>
+								<groupId>${project.groupId}</groupId>
+								<artifactId>${project.artifactId}</artifactId>
+								<version>${maven.compiler.release}</version>
+								<mainClass>${main.class}</mainClass>
+							</java>
+						</project>
+
+						<release>
+							<github>
+								<owner>axkr</owner>
+								<name>symja_android_library</name>
+								<overwrite>true</overwrite>
+							</github>
+						</release>
+
+						<!-- One big jar: no jlink assembler, the shaded artifact is
+							released as-is and run with `java -jar`. -->
+						<distributions>
+							<symja>
+								<type>SINGLE_JAR</type>
+								<executable>
+									<name>symja</name>
+								</executable>
+								<artifacts>
+									<artifact>
+										<path>
+											${project.build.directory}/${project.artifactId}-${project.version}-all.jar</path>
+									</artifact>
+								</artifacts>
+							</symja>
+						</distributions>
+
+						<packagers>
+							<brew>
+								<active>ALWAYS</active>
+								<tap>
+									<owner>axkr</owner>
+									<name>homebrew-tap</name>
+								</tap>
+							</brew>
+							<scoop>
+								<active>ALWAYS</active>
+								<bucket>
+									<owner>axkr</owner>
+									<name>scoop-bucket</name>
+								</bucket>
+							</scoop>
+						</packagers>
+					</jreleaser>
+				</configuration>
+			</plugin>
+
+		</plugins>
+	</build>
+
+	<profiles>
+		<!-- Profile for building a GraalVM native image in Ubuntu/WSL -->
+		<profile>
+			<id>native</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.graalvm.buildtools</groupId>
+						<artifactId>native-maven-plugin</artifactId>
+						<version>0.10.1</version>
+						<extensions>true</extensions>
+						<executions>
+							<execution>
+								<id>build-native</id>
+								<goals>
+									<goal>compile-no-fork</goal>
+								</goals>
+								<phase>package</phase>
+							</execution>
+						</executions>
+						<configuration>
+							<imageName>symja-console</imageName>
+							<mainClass>${main.class}</mainClass>
+							<buildArgs>
+								<buildArg>--no-fallback</buildArg>
+								<buildArg>-J-Xmx8G</buildArg>
+							</buildArgs>
+							<metadataRepository>
+								<enabled>true</enabled>
+							</metadataRepository>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
+</project>
