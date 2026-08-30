@@ -13,8 +13,8 @@ import org.jline.utils.AttributedStyle;
 import org.matheclipse.core.convert.AST2Expr;
 
 /**
- * JLine3 Highlighter for Symja/Wolfram Language syntax. Colorizes built-in functions, symbols,
- * constants, strings, numbers, and brackets.
+ * JLine3 Highlighter for Mathematica like syntax. Colorizes built-in functions, symbols, constants,
+ * strings, numbers, and brackets.
  */
 public class SymjaHighlighter implements Highlighter {
 
@@ -23,7 +23,6 @@ public class SymjaHighlighter implements Highlighter {
   private final Set<String> constants;
 
   // Regex pattern to tokenize the input line into components relevant for syntax highlighting.
-  // Includes support for Mathematica-style scientific notation (e.g., 1.5*^10).
   private static final Pattern TOKEN_PATTERN = Pattern.compile("(?<STRING>\"(?:\\\\\"|[^\"])*\")|"
       + "(?<NUMBER>\\b\\d+\\.?\\d*(?:\\*\\^\\d+)?\\b|\\.\\d+(?:\\*\\^\\d+)?)|"
       + "(?<IDENTIFIER>[a-zA-Z\\$][a-zA-Z0-9\\$]*)|" + "(?<BRACKET>[\\(\\[\\{\\}\\]\\)])|"

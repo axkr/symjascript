@@ -63,9 +63,12 @@
 			${project.version} so the console can be pinned to a released core. -->
 		<symja.version>3.3.0-SNAPSHOT</symja.version>
 		<jline.version>3.26.1</jline.version>
+		<jsvg.version>2.1.0</jsvg.version>
 		<jna.version>5.14.0</jna.version>
 		<commons-io.version>2.22.0</commons-io.version>
-		<main.class>org.matheclipse.console.MMAConsole</main.class>
+		<main.class>org.matheclipse.console.SymjaScript</main.class>
+		<!-- Heap for the native-image builder process (the 'native' profile). -->
+		<native.build.maxheap>24g</native.build.maxheap>
 	</properties>
 
 	<!-- Required for standalone resolution: matheclipse-core is published as a
@@ -95,21 +98,21 @@
 		</repository>
 	</repositories>
 
-	<!-- Without the org.matheclipse parent's dependencyManagement these two
-		would drift to the versions matheclipse-core happens to pull in
-		transitively (slf4j-api 1.7.36, fastutil-core 8.5.19). Pinned here so the
-		standalone build produces the same classpath as the reactor build. -->
+	<!-- Without the org.matheclipse parent's dependencyManagement slf4j-api
+		would drift to the version matheclipse-core pulls in transitively
+		(1.7.36). Pinned here so the standalone build produces the same classpath
+		as the reactor build.
+
+		fastutil-core used to be pinned here as well. It is no longer needed: the
+		slim replacements live in org.matheclipse.external.fastutil, and
+		matheclipse-external depends on the original only in test scope, so it
+		never reaches this classpath. -->
 	<dependencyManagement>
 		<dependencies>
 			<dependency>
 				<groupId>org.slf4j</groupId>
 				<artifactId>slf4j-api</artifactId>
 				<version>2.0.18</version>
-			</dependency>
-			<dependency>
-				<groupId>it.unimi.dsi</groupId>
-				<artifactId>fastutil-core</artifactId>
-				<version>8.5.18</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
@@ -121,12 +124,23 @@
 			<version>${symja.version}</version>
 		</dependency>
 
-		<!-- Used directly by MMAConsole (StringBuilderWriter); declared
+
+		<!-- Used directly by SymjaScript (StringBuilderWriter); declared
 			explicitly rather than relied upon transitively via matheclipse-core. -->
 		<dependency>
 			<groupId>commons-io</groupId>
 			<artifactId>commons-io</artifactId>
 			<version>${commons-io.version}</version>
+		</dependency>
+
+		<!-- Renders the engine's SVG into a raster image for -format PNG and the
+			other ImageIO formats. jsvg alone is enough: matheclipse-image wraps it
+			in the same way, but drags in BoofCV and EJML for image *processing*,
+			which -format never touches. -->
+		<dependency>
+			<groupId>com.github.weisj</groupId>
+			<artifactId>jsvg</artifactId>
+			<version>${jsvg.version}</version>
 		</dependency>
 
 		<dependency>
@@ -152,6 +166,17 @@
 	</dependencies>
 
 	<build>
+		<!-- Provides ${os.detected.classifier} (e.g. osx-aarch_64, linux-x86_64),
+			which is the naming JReleaser expects for a platform-specific
+			distribution. Declared here rather than in the 'native' profile because
+			Maven does not allow <extensions> inside a profile. -->
+		<extensions>
+			<extension>
+				<groupId>kr.motd.maven</groupId>
+				<artifactId>os-maven-plugin</artifactId>
+				<version>1.7.1</version>
+			</extension>
+		</extensions>
 		<plugins>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -227,6 +252,14 @@
 											commons-*, jansi, ...) are multi-release jars, so the
 											merged jar has to be flagged as one too. -->
 										<Multi-Release>true</Multi-Release>
+										<!-- jline loads its terminal library with System.load, which
+											is a restricted method under JEP 472. Without this, Java 24+
+											prints four warnings on every start, and a future release
+											would block the call outright. Declared in the manifest
+											rather than as a launcher flag so the jar still runs on
+											Java 11: an unknown manifest attribute is ignored, while
+											an unknown launcher flag is fatal. -->
+										<Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
 										<Implementation-Title>${project.artifactId}</Implementation-Title>
 										<Implementation-Version>${project.version}</Implementation-Version>
 									</manifestEntries>
@@ -255,7 +288,7 @@
 							<descriptors>
 								<descriptor>src/assembly/distribution.xml</descriptor>
 							</descriptors>
-							<finalName>symja-console-${project.version}</finalName>
+							<finalName>symjascript-${project.version}</finalName>
 							<appendAssemblyId>false</appendAssemblyId>
 							<tarLongFileMode>posix</tarLongFileMode>
 						</configuration>
@@ -285,7 +318,7 @@
 					<programs>
 						<program>
 							<mainClass>${main.class}</mainClass>
-							<id>symja</id>
+							<id>symjascript</id>
 						</program>
 					</programs>
 				</configuration>
@@ -296,6 +329,10 @@
 				<artifactId>jreleaser-maven-plugin</artifactId>
 				<version>1.12.0</version>
 				<configuration>
+					<!-- The Maven project lives one directory below the git root, so
+						JReleaser has to walk up to find .git. Without this it aborts with
+						"Could not determine git HEAD: repository not found". -->
+					<gitRootSearch>true</gitRootSearch>
 					<jreleaser>
 						<project>
 							<description>Symja MMA Language Console App</description>
@@ -325,7 +362,7 @@
 							<symja>
 								<type>SINGLE_JAR</type>
 								<executable>
-									<name>symja</name>
+									<name>symjascript</name>
 								</executable>
 								<artifacts>
 									<artifact>
@@ -368,7 +405,10 @@
 					<plugin>
 						<groupId>org.graalvm.buildtools</groupId>
 						<artifactId>native-maven-plugin</artifactId>
-						<version>0.10.1</version>
+						<!-- 1.x is required for GraalVM for JDK 21+: 0.10.x probes for the
+							'gu' tool, which those distributions no longer ship, and aborts
+							with "not a GraalVM distribution". -->
+						<version>1.1.10</version>
 						<extensions>true</extensions>
 						<executions>
 							<execution>
@@ -380,15 +420,89 @@
 							</execution>
 						</executions>
 						<configuration>
-							<imageName>symja-console</imageName>
+							<imageName>symjascript</imageName>
 							<mainClass>${main.class}</mainClass>
 							<buildArgs>
 								<buildArg>--no-fallback</buildArg>
-								<buildArg>-J-Xmx8G</buildArg>
+								<!-- Symja is a large closed world; the builder ran out of
+									heap at 8G. Overridable for smaller CI machines:
+									-Dnative.build.maxheap=12g -->
+								<buildArg>-J-Xmx${native.build.maxheap}</buildArg>
+								<!-- The jar's Enable-Native-Access manifest entry does not
+									apply to a native image, so jline's System.load has to be
+									permitted at build time instead. -->
+								<buildArg>--enable-native-access=ALL-UNNAMED</buildArg>
 							</buildArgs>
 							<metadataRepository>
 								<enabled>true</enabled>
 							</metadataRepository>
+						</configuration>
+					</plugin>
+
+					<!-- Packs the native executable into a platform-specific ZIP.
+						Bound to 'verify' rather than 'package': the base build already
+						declares maven-assembly-plugin, so an execution added here would
+						otherwise be ordered before native-maven-plugin and run while the
+						binary does not exist yet. Build it with:
+						  mvn -Pnative verify -->
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-assembly-plugin</artifactId>
+						<executions>
+							<execution>
+								<id>native-distribution-zip</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>single</goal>
+								</goals>
+								<configuration>
+									<descriptors>
+										<descriptor>src/assembly/native-distribution.xml</descriptor>
+									</descriptors>
+									<finalName>symjascript-${project.version}-${os.detected.classifier}</finalName>
+									<appendAssemblyId>false</appendAssemblyId>
+									<tarLongFileMode>posix</tarLongFileMode>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+
+					<!-- Adds the native image as a second JReleaser distribution,
+						alongside the SINGLE_JAR one declared in the base build. Declared
+						in this profile so a release built without -Pnative does not
+						reference a ZIP that was never produced. -->
+					<plugin>
+						<groupId>org.jreleaser</groupId>
+						<artifactId>jreleaser-maven-plugin</artifactId>
+						<configuration>
+							<jreleaser>
+								<distributions>
+									<symja-native>
+										<!-- BINARY, not NATIVE_IMAGE: the latter is deprecated
+											since JReleaser 1.4.0 and is removed in 2.0.0. -->
+										<type>BINARY</type>
+										<executable>
+											<name>symjascript</name>
+										</executable>
+										<artifacts>
+											<artifact>
+												<path>${project.build.directory}/symjascript-${project.version}-${os.detected.classifier}.zip</path>
+												<platform>${os.detected.classifier}</platform>
+											</artifact>
+										</artifacts>
+										<!-- brew/scoop stay on the portable jar distribution, which
+											works on every platform. A native tap would need one
+											artifact per platform, i.e. a CI matrix that builds the
+											image on macOS, Linux and Windows. -->
+										<brew>
+											<active>NEVER</active>
+										</brew>
+										<scoop>
+											<active>NEVER</active>
+										</scoop>
+									</symja-native>
+								</distributions>
+							</jreleaser>
 						</configuration>
 					</plugin>
 				</plugins>

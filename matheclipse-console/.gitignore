@@ -14,3 +14,4 @@ target/
 /lib/
 test.*
 *.ser
+/.DS_Store

@@ -18,7 +18,12 @@ public class SymjaCompleter implements Completer {
     candidates = new ArrayList<Candidate>();
     for (Map.Entry<String, String> entry : AST2Expr.PREDEFINED_SYMBOLS_MAP.entrySet()) {
       String val = entry.getValue();
-      candidates.add(new Candidate(val));
+      // The single-argument Candidate constructor marks the candidate as a
+      // complete word, which makes JLine append a separator after it - so
+      // completing "Int" to "Integrate" produced "Integrate [" once the
+      // argument list was typed. A Symja function name is followed by "[",
+      // never by a space, so the candidate is deliberately not "complete".
+      candidates.add(new Candidate(val, val, null, null, null, null, false));
     }
   }
 
