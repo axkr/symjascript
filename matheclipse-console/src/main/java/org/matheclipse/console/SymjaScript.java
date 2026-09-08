@@ -843,7 +843,20 @@ public class SymjaScript {
       runSource(source, "-file");
       return;
     }
-    evaluateScript(source);
+    // A script finds its own files through $InputFileName - `ParentDirectory[DirectoryName[
+    // $InputFileName]] // SetDirectory` is how a Wolfram Language application locates itself - so
+    // it has to name the script, absolutely, before a line of it runs.
+    EvalEngine engine = fEvaluator.getEvalEngine();
+    String inputFileName = engine.get$InputFileName();
+    String input = engine.get$Input();
+    try {
+      engine.set$InputFileName(scriptFile.getAbsolutePath());
+      engine.set$Input(filename);
+      evaluateScript(source);
+    } finally {
+      engine.set$InputFileName(inputFileName);
+      engine.set$Input(input);
+    }
   }
 
   /**
