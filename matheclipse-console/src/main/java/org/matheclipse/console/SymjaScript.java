@@ -31,6 +31,7 @@ import org.matheclipse.core.eval.EvalControlledCallable;
 import org.matheclipse.core.eval.EvalEngine;
 import org.matheclipse.core.eval.ExprEvaluator;
 import org.matheclipse.core.eval.exception.AbortException;
+import org.matheclipse.core.eval.exception.ExitException;
 import org.matheclipse.core.eval.exception.FailedException;
 import org.matheclipse.core.eval.exception.ReturnException;
 import org.matheclipse.core.eval.exception.Validate;
@@ -43,6 +44,7 @@ import org.matheclipse.core.expression.S;
 import org.matheclipse.core.form.Documentation;
 import org.matheclipse.core.form.output.ASCIIPrettyPrinter3;
 import org.matheclipse.core.form.output.OutputFormFactory;
+import org.matheclipse.core.interfaces.IASTAppendable;
 import org.matheclipse.core.interfaces.IExpr;
 import org.matheclipse.core.interfaces.ISymbol;
 import org.matheclipse.parser.client.ParserConfig;
@@ -123,14 +125,26 @@ public class SymjaScript {
   private static PrintWriter stderr;
   private static Terminal terminal;
 
-  /* package private */ static void runConsole(final String args[], PrintWriter out,
+  /* package private */ static int runConsole(final String args[], PrintWriter out,
       PrintWriter err) {
     stdout = out;
     stderr = err;
-    main(args);
+    return run(args);
   }
 
   public static void main(final String args[]) {
+    System.exit(run(args));
+  }
+
+  /**
+   * Run one invocation and answer the status the process should end with. Split from
+   * {@link #main(String[])} so that a test can drive the console without ending the JVM: the only
+   * thing main adds is {@link System#exit(int)}.
+   */
+  private static int run(final String args[]) {
+    exitStatus = 0;
+    // one run must not decide how the next one reports $VersionNumber
+    Config.WOLFRAMSCRIPT_COMPAT = false;
     Locale.setDefault(Locale.US);
     ParserConfig.PARSER_USE_LOWERCASE_SYMBOLS = false;
     ToggleFeature.COMPILE = true;
@@ -140,45 +154,43 @@ public class SymjaScript {
     Config.SHORTEN_STRING_LENGTH = 1024;
     Config.USE_VISJS = true;
     Config.FILESYSTEM_ENABLED = true;
+    // Symja owns this process, so Exit[] and Quit[] may end it with a status
+    Config.PROCESS_MODE = true;
+    setCommandLine(args);
     F.initSymja();
 
-    try {
-      terminal = TerminalBuilder.builder()//
-          .system(true)//
-          .jna(true) // Force JLine to use JNA for Windows native API calls
-          .build();
-      stdout = terminal.writer();
-      stderr = terminal.writer();
-      // JLine's system terminal writes straight to the terminal device, and it
-      // hands out the same writer for both streams. For an interactive session
-      // that is what you want. For a one-shot run it is wrong twice over:
-      //
-      // symja -code 'Plot[Sin[x],{x,0,10}]' -format SVG > plot.svg
-      //
-      // would print the picture on screen and leave plot.svg empty, because the
-      // terminal writer never sees the shell's redirection; and any diagnostic
-      // would land on stdout, inside the redirected file. So for the
-      // non-interactive options use the process's own streams: stdout then
-      // follows the redirection and stderr stays separate from it.
-      //
-      // Note this only shows up when stdin is a terminal. With stdin on a pipe
-      // JLine falls back to a dumb terminal that wraps System.out, and the
-      // redirection appears to work.
-      for (String arg : args) {
-        if (arg.equals("-code") || arg.equals("-c") || arg.equals("-function") || arg.equals("-f")
-            || arg.equals("-format")) {
-          stdout = new PrintWriter(System.out, true);
-          stderr = new PrintWriter(System.err, true);
-          break;
-        }
+    // JLine's system terminal writes straight to the terminal device, and it
+    // hands out the same writer for both streams. For an interactive session
+    // that is what you want. For a one-shot run it is wrong twice over:
+    //
+    // symja -code 'Plot[Sin[x],{x,0,10}]' -format SVG > plot.svg
+    //
+    // would print the picture on screen and leave plot.svg empty, because the
+    // terminal writer never sees the shell's redirection; and any diagnostic
+    // would land on stdout, inside the redirected file. So for a one-shot run
+    // use the process's own streams: stdout then follows the redirection and
+    // stderr stays separate from it.
+    //
+    // A one-shot run also builds no terminal at all. JLine warns on stderr when
+    // it cannot open a system terminal, and that warning has no business in the
+    // output of `symjascript script.wls`.
+    boolean interactive = !isNonInteractive(args);
+    if (interactive) {
+      try {
+        terminal = TerminalBuilder.builder()//
+            .system(true)//
+            .jna(true) // Force JLine to use JNA for Windows native API calls
+            .build();
+        stdout = terminal.writer();
+        stderr = terminal.writer();
+      } catch (IOException e) {
+        System.err.println("Could not initialize JLine Terminal: " + e.getMessage());
+        return 1;
       }
-    } catch (IOException e) {
-      System.err.println("Could not initialize JLine Terminal: " + e.getMessage());
-      return;
+    } else {
+      stdout = new PrintWriter(System.out, true);
+      stderr = new PrintWriter(System.err, true);
     }
-
-    LineReader reader = LineReaderBuilder.builder().terminal(terminal)
-        .completer(new SymjaCompleter()).highlighter(new SymjaHighlighter()).build();
 
     SymjaScript console;
     try {
@@ -186,7 +198,7 @@ public class SymjaScript {
       Config.PRINT_OUT = console::printOut;
     } catch (final SyntaxError e1) {
       e1.printStackTrace();
-      return;
+      return 1;
     }
 
     try {
@@ -194,8 +206,16 @@ public class SymjaScript {
     } catch (ReturnException re) {
       stdout.flush();
       stderr.flush();
-      System.exit(exitStatus);
+      return exitStatus;
+    } catch (ExitException ee) {
+      // Exit[n] in a script, an init file or -code
+      stdout.flush();
+      stderr.flush();
+      return ee.getExitCode();
     }
+    LineReader reader = LineReaderBuilder.builder().terminal(terminal)
+        .completer(new SymjaCompleter()).highlighter(new SymjaHighlighter()).build();
+
     stdout.println("Symja version " + Config.VERSION + " initialized");
     stdout.flush();
 
@@ -277,12 +297,96 @@ public class SymjaScript {
         // Exit on Ctrl-D
         stdout.println("Closing Symja console... bye.");
         break;
+      } catch (ExitException ee) {
+        // Exit[] / Quit[] typed at the prompt
+        stdout.flush();
+        stderr.flush();
+        return ee.getExitCode();
       } catch (final Exception e) {
         stderr.println(e.getMessage());
         stderr.flush();
       }
     }
+    stdout.flush();
+    stderr.flush();
+    return exitStatus;
   }
+
+  /**
+   * Fill in <code>$CommandLine</code> and the command that starts another copy of this interpreter.
+   *
+   * <p>
+   * <code>First[$CommandLine]</code> has to be runnable, because that is how a script starts a
+   * second kernel. For a native image that is the binary itself; running from a jar the binary name
+   * would be <code>java</code> with no class path, so the launcher scripts pass their own path in
+   * <code>symja.executable</code> and the full java command is remembered separately.
+   */
+  private static void setCommandLine(final String args[]) {
+    String executable = System.getProperty("symja.executable");
+    List<String> relaunch = new ArrayList<String>();
+    if (executable == null || executable.isEmpty()) {
+      executable = ProcessHandle.current().info().command().orElse("symjascript");
+      String classPath = System.getProperty("java.class.path");
+      if (classPath == null || classPath.isEmpty()) {
+        // a native image: the binary is the whole command
+        relaunch.add(executable);
+      } else {
+        relaunch.add(executable);
+        relaunch.add("-cp");
+        relaunch.add(classPath);
+        relaunch.add(SymjaScript.class.getName());
+      }
+    } else {
+      relaunch.add(executable);
+    }
+    Config.RELAUNCH_COMMAND = relaunch;
+
+    IASTAppendable commandLine = F.ListAlloc(args.length + 1);
+    commandLine.append(executable);
+    for (String arg : args) {
+      commandLine.append(arg);
+    }
+    Config.COMMAND_LINE = commandLine;
+  }
+
+  /**
+   * Does this command line ask for one-shot work rather than a session? Then the process's own
+   * streams are used, so that a shell redirection reaches the output and diagnostics stay out of it.
+   */
+  private static boolean isNonInteractive(final String args[]) {
+    for (String arg : args) {
+      if (arg.equals("-code") || arg.equals("-c") //
+          || arg.equals("-function") || arg.equals("-fun") //
+          || arg.equals("-file") || arg.equals("-f") //
+          || arg.equals("-script") //
+          || arg.equals("-format")) {
+        return true;
+      }
+    }
+    // `symjascript script.wls` is a one-shot run as well, and so is a program on stdin - with
+    // stdin on a pipe JLine builds a dumb terminal around System.out anyway, so this only makes
+    // the choice explicit
+    return scriptFileArgument(args) != null || System.console() == null;
+  }
+
+  /**
+   * The bare argument naming a script, as in <code>symjascript report.wls 2026</code>, or
+   * <code>null</code> when the command line does not start with one. Only the first bare token is
+   * considered, and only when it names a readable file, so that a mistyped option is still reported
+   * as an unknown option rather than silently ignored.
+   */
+  private static String scriptFileArgument(final String args[]) {
+    for (String arg : args) {
+      if (isOption(arg)) {
+        // any option decides how the run works; a bare script only counts before one
+        return null;
+      }
+      return new File(arg).isFile() ? arg : null;
+    }
+    return null;
+  }
+
+
 
   private String resultPrinter(String inputExpression) {
     String outputExpression = interpreter(inputExpression);
@@ -309,7 +413,9 @@ public class SymjaScript {
     msg.append(lineSeparator);
     msg.append("Program arguments: ").append(lineSeparator);
     msg.append("  -c, -code <code>            evaluate the code").append(lineSeparator);
-    msg.append("  -f, -file <file>            evaluate a script file; a #! first line is")
+    msg.append("  <file>                      evaluate a script file, as with -file")
+        .append(lineSeparator);
+    msg.append("  -f, -file, -script <file>   evaluate a script file; a #! first line is")
         .append(lineSeparator);
     msg.append("                              ignored, and everything after the file is passed")
         .append(lineSeparator);
@@ -413,10 +519,10 @@ public class SymjaScript {
         code = requireValue(args, i, "-code");
         i++;
 
-      } else if (arg.equals("-file") || arg.equals("-f")) {
+      } else if (arg.equals("-file") || arg.equals("-f") || arg.equals("-script")) {
         // -f is the file. It used to mean -function here; if the
         // argument does not name a file, say so rather than failing obscurely later.
-        file = requireValue(args, i, "-file");
+        file = requireValue(args, i, arg.equals("-script") ? "-script" : "-file");
         i++;
         // Option parsing stops at the script, the way python, perl and node do it:
         // everything after it belongs to the script. A script's own arguments often start
@@ -523,6 +629,16 @@ public class SymjaScript {
         printUsage();
         throw ReturnException.RETURN_FALSE;
 
+      } else if (file == null && code == null && function == null && scriptArgs.isEmpty()
+          && new File(arg).isFile()) {
+        // `symjascript report.wls 2026 --verbose`, the way wolframscript and a #! line run a
+        // script. Everything after it belongs to the script, exactly as with -file.
+        file = arg;
+        for (int j = i + 1; j < args.length; j++) {
+          scriptArgs.add(args[j]);
+        }
+        i = args.length;
+
       } else {
         scriptArgs.add(arg);
       }
@@ -579,6 +695,9 @@ public class SymjaScript {
     }
 
     if (file != null) {
+      // A script is run the way wolframscript runs one, so that a script which gates on
+      // $VersionNumber sees the Wolfram Language version Symja follows rather than Symja's own.
+      Config.WOLFRAMSCRIPT_COMPAT = true;
       runFile(file);
       throw ReturnException.RETURN_TRUE;
     }
@@ -591,6 +710,14 @@ public class SymjaScript {
     if (fLinewise) {
       fail("symjascript: -linewise needs -code or -file");
       throw ReturnException.RETURN_FALSE;
+    }
+
+    if (System.console() == null) {
+      // Nothing was asked for and stdin is not a terminal, so the program is on stdin:
+      // `symjascript < report.wls` and `... | symjascript`, as in wolframscript.
+      Config.WOLFRAMSCRIPT_COMPAT = true;
+      runStdin();
+      throw ReturnException.RETURN_TRUE;
     }
     // no work requested: continue into the interactive REPL
   }
@@ -668,6 +795,32 @@ public class SymjaScript {
     }
   }
 
+  /** Evaluate the program waiting on stdin, honouring -print. */
+  private void runStdin() {
+    String source;
+    try {
+      byte[] bytes = readAllBytes(System.in);
+      source = new String(bytes, fCharset == null ? StandardCharsets.UTF_8 : Charset.forName(fCharset));
+    } catch (IOException ioe) {
+      fail("symjascript: cannot read stdin: " + ioe.getMessage());
+      throw ReturnException.RETURN_FALSE;
+    }
+    if (source.trim().isEmpty()) {
+      return;
+    }
+    evaluateScript(PackageUtil.withoutShebang(source));
+  }
+
+  private static byte[] readAllBytes(java.io.InputStream in) throws IOException {
+    java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream(8192);
+    byte[] chunk = new byte[8192];
+    int read;
+    while ((read = in.read(chunk)) > 0) {
+      buffer.write(chunk, 0, read);
+    }
+    return buffer.toByteArray();
+  }
+
   /** Evaluate a script file, honouring -print. */
   private void runFile(String filename) {
     File scriptFile = new File(filename);
@@ -685,10 +838,7 @@ public class SymjaScript {
       throw ReturnException.RETURN_FALSE;
     }
     // A leading #! line is a shebang, not Symja source.
-    if (source.startsWith("#!")) {
-      int nl = source.indexOf('\n');
-      source = nl < 0 ? "" : source.substring(nl + 1);
-    }
+    source = PackageUtil.withoutShebang(source);
     if (fLinewise) {
       runSource(source, "-file");
       return;
@@ -800,6 +950,9 @@ public class SymjaScript {
       if (result != F.NIL) {
         return printResult(result);
       }
+    } catch (final ExitException ee) {
+      // Exit[] / Quit[] end the process, and no report of a failed evaluation stands in for that
+      throw ee;
     } catch (final AbortException re) {
       return printResult(S.$Aborted);
     } catch (final FailedException re) {
