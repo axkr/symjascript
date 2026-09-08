@@ -29,6 +29,7 @@ import org.matheclipse.core.convert.AST2Expr;
 import org.matheclipse.core.eval.Errors;
 import org.matheclipse.core.eval.EvalControlledCallable;
 import org.matheclipse.core.eval.EvalEngine;
+import org.matheclipse.core.eval.tasks.EventLoop;
 import org.matheclipse.core.eval.ExprEvaluator;
 import org.matheclipse.core.eval.exception.AbortException;
 import org.matheclipse.core.eval.exception.ExitException;
@@ -156,6 +157,8 @@ public class SymjaScript {
     Config.FILESYSTEM_ENABLED = true;
     // Symja owns this process, so Exit[] and Quit[] may end it with a status
     Config.PROCESS_MODE = true;
+    // a command-line script may open sockets, start processes and talk to another kernel
+    Config.OS_ACCESS_ENABLED = true;
     setCommandLine(args);
     F.initSymja();
 
@@ -477,8 +480,8 @@ public class SymjaScript {
     fEvaluator = new ExprEvaluator(engine, false, (short) 100);
     EvalEngine evalEngine = fEvaluator.getEvalEngine();
     evalEngine.setFileSystemEnabled(true);
-    evalEngine.setRecursionLimit(Config.DEFAULT_RECURSION_LIMIT);
-    evalEngine.setIterationLimit(Config.DEFAULT_ITERATION_LIMIT);
+    evalEngine.setRecursionLimit(1000);
+    evalEngine.setIterationLimit(100_000);
     evalEngine.setErrorPrintStream(System.err);
     evalEngine.setOutPrintStream(System.out);
     fOutputFactory = OutputFormFactory.get(false, false, 5, 7);
@@ -878,6 +881,8 @@ public class SymjaScript {
     for (ASTNode node : nodes) {
       IExpr expr = ast2Expr.convert(node);
       last = engine.evaluate(expr);
+      // between two statements the script is idle, so anything that arrived meanwhile runs here
+      EventLoop.INSTANCE.pump(engine);
       if (PRINT_ALL.equals(fPrintMode)) {
         printOneResult(last);
       }
