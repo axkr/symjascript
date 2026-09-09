@@ -41,6 +41,7 @@ import org.matheclipse.core.eval.util.PackageUtil;
 import org.matheclipse.core.eval.util.SourceCodeProperties;
 import org.matheclipse.core.eval.util.SymjaDirectories;
 import org.matheclipse.core.expression.F;
+import org.matheclipse.core.io.link.KernelLinkServer;
 import org.matheclipse.core.expression.S;
 import org.matheclipse.core.form.Documentation;
 import org.matheclipse.core.form.output.ASCIIPrettyPrinter3;
@@ -161,6 +162,10 @@ public class SymjaScript {
     Config.OS_ACCESS_ENABLED = true;
     setCommandLine(args);
     F.initSymja();
+
+    if (isKernelLink(args)) {
+      return runKernelLink();
+    }
 
     // JLine's system terminal writes straight to the terminal device, and it
     // hands out the same writer for both streams. For an interactive session
@@ -356,6 +361,47 @@ public class SymjaScript {
    * Does this command line ask for one-shot work rather than a session? Then the process's own
    * streams are used, so that a shell redirection reaches the output and diagnostics stay out of it.
    */
+  /** Was this kernel started to be driven over a link, rather than by a person? */
+  private static boolean isKernelLink(final String args[]) {
+    for (String arg : args) {
+      if (arg.equals("-wstp") || arg.equals("-mathlink")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Serve the kernel which started this one, reading its packets from standard input and answering
+   * on standard output.
+   *
+   * <p>
+   * Standard output belongs to the link from here on, so everything which would otherwise be
+   * printed there - the banner, a <code>Print</code>, a message - is moved out of the way: what
+   * the evaluation prints travels as packets instead, and what Java itself writes goes to standard
+   * error, where a person looking at the parent's console can see it. A stray character on
+   * standard output would be read as a frame and end the conversation.
+   */
+  private static int runKernelLink() {
+    java.io.OutputStream frames = new java.io.FileOutputStream(java.io.FileDescriptor.out);
+    java.io.InputStream packets = System.in;
+    System.setOut(new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.err), true,
+        java.nio.charset.StandardCharsets.UTF_8));
+    Config.PRINT_OUT = x -> {
+    };
+    // a script driven over a link is a wolframscript, so $VersionNumber says what it is compatible
+    // with rather than Symja's own number
+    Config.WOLFRAMSCRIPT_COMPAT = true;
+
+    EvalEngine engine = new EvalEngine("", 256, 256, System.out, System.err, false);
+    EvalEngine.set(engine);
+    engine.init();
+    engine.setFileSystemEnabled(true);
+    engine.setRecursionLimit(1000);
+    engine.setIterationLimit(100_000);
+    return KernelLinkServer.serve(packets, frames, engine);
+  }
+
   private static boolean isNonInteractive(final String args[]) {
     for (String arg : args) {
       if (arg.equals("-code") || arg.equals("-c") //
