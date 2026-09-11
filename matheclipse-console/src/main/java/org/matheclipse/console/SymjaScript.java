@@ -49,6 +49,7 @@ import org.matheclipse.core.form.output.OutputFormFactory;
 import org.matheclipse.core.interfaces.IASTAppendable;
 import org.matheclipse.core.interfaces.IExpr;
 import org.matheclipse.core.interfaces.ISymbol;
+import org.matheclipse.graphtheory.GraphTheoryInit;
 import org.matheclipse.parser.client.ParserConfig;
 import org.matheclipse.parser.client.Scanner;
 import org.matheclipse.parser.client.SyntaxError;
@@ -162,6 +163,8 @@ public class SymjaScript {
     Config.OS_ACCESS_ENABLED = true;
     setCommandLine(args);
     F.initSymja();
+    // Graph, GraphPlot, EdgeList, ... live in matheclipse-graphtheory
+    GraphTheoryInit.init();
 
     if (isKernelLink(args)) {
       return runKernelLink();

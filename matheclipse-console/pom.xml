@@ -125,6 +125,22 @@
 			<version>${symja.version}</version>
 		</dependency>
 
+		<!-- Graph, GraphPlot, EdgeList, ...: core owns the symbols, this module
+			implements them (GraphTheoryInit.init()). Its log4j backend is left out:
+			the module itself never touches log4j, and the console keeps its quiet
+			default logging. -->
+		<dependency>
+			<groupId>org.matheclipse</groupId>
+			<artifactId>matheclipse-graphtheory</artifactId>
+			<version>${symja.version}</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.matheclipse</groupId>
+					<artifactId>matheclipse-logging</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
 
 		<!-- Used directly by SymjaScript (StringBuilderWriter); declared
 			explicitly rather than relied upon transitively via matheclipse-core. -->
