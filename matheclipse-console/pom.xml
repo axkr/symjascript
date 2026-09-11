@@ -141,6 +141,22 @@
 			</exclusions>
 		</dependency>
 
+		<!-- Image[...], ImageData, ImageCrop, ... and every javax.imageio format
+			for Import/Export: core owns the symbols, this module implements them
+			(ImageInit.init()). The WLJS notebook shows an Image as a picture only
+			when it is an image object. Its log4j backend is left out, as above. -->
+		<dependency>
+			<groupId>org.matheclipse</groupId>
+			<artifactId>matheclipse-image</artifactId>
+			<version>${symja.version}</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.matheclipse</groupId>
+					<artifactId>matheclipse-logging</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
 
 		<!-- Used directly by SymjaScript (StringBuilderWriter); declared
 			explicitly rather than relied upon transitively via matheclipse-core. -->

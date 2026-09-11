@@ -50,6 +50,7 @@ import org.matheclipse.core.interfaces.IASTAppendable;
 import org.matheclipse.core.interfaces.IExpr;
 import org.matheclipse.core.interfaces.ISymbol;
 import org.matheclipse.graphtheory.GraphTheoryInit;
+import org.matheclipse.image.ImageInit;
 import org.matheclipse.parser.client.ParserConfig;
 import org.matheclipse.parser.client.Scanner;
 import org.matheclipse.parser.client.SyntaxError;
@@ -165,6 +166,8 @@ public class SymjaScript {
     F.initSymja();
     // Graph, GraphPlot, EdgeList, ... live in matheclipse-graphtheory
     GraphTheoryInit.init();
+    // Image, ImageData, ImageCrop, ... and the javax.imageio formats live in matheclipse-image
+    ImageInit.init();
 
     if (isKernelLink(args)) {
       return runKernelLink();
