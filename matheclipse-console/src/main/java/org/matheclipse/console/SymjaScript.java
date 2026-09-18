@@ -29,6 +29,7 @@ import org.matheclipse.core.convert.AST2Expr;
 import org.matheclipse.core.eval.Errors;
 import org.matheclipse.core.eval.EvalControlledCallable;
 import org.matheclipse.core.eval.EvalEngine;
+import org.matheclipse.core.eval.util.AwtSupport;
 import org.matheclipse.core.eval.tasks.EventLoop;
 import org.matheclipse.core.eval.ExprEvaluator;
 import org.matheclipse.core.eval.exception.AbortException;
@@ -135,6 +136,13 @@ public class SymjaScript {
     stderr = err;
     return run(args);
   }
+
+  /**
+   * Printed when an evaluation reaches AWT on a runtime without it. A native image on macOS has no
+   * libawt (oracle/graal#13272); pictures are still available as SVG.
+   */
+  private static final String AWT_UNAVAILABLE =
+      "symjascript: this needs AWT, which this build does not provide. Use SVG output instead.";
 
   public static void main(final String args[]) {
     System.exit(run(args));
@@ -318,6 +326,13 @@ public class SymjaScript {
         return ee.getExitCode();
       } catch (final Exception e) {
         stderr.println(e.getMessage());
+        stderr.flush();
+      } catch (final LinkageError le) {
+        // last line of defence for the interactive session; see interpreter()
+        if (!AwtSupport.isMissingNativeLibrary(le)) {
+          throw le;
+        }
+        stderr.println(AWT_UNAVAILABLE);
         stderr.flush();
       }
     }
@@ -1045,6 +1060,16 @@ public class SymjaScript {
     } catch (final Exception | OutOfMemoryError | StackOverflowError e) {
       Validate.printException(buf, e);
       stderr.println(buf.toString());
+      stderr.flush();
+      return "";
+    } catch (final LinkageError le) {
+      // A builtin that needs AWT is already reported by the evaluator; this catches the same
+      // failure outside it - while printing an Image result, say - on a native image without
+      // libawt, so it costs one line of output rather than the session.
+      if (!AwtSupport.isMissingNativeLibrary(le)) {
+        throw le;
+      }
+      stderr.println(AWT_UNAVAILABLE);
       stderr.flush();
       return "";
     }
