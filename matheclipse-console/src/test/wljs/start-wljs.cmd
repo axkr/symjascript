@@ -14,7 +14,7 @@ set "SYMJASCRIPT=%CONSOLE_DIR%\target\appassembler\bin\symjascript.bat"
 
 if "%~1"=="--build" (
   pushd "%SYMJA_DIR%\symja_android_library" || exit /b 1
-  call mvn -o -q install -pl matheclipse-parser,matheclipse-core -DskipTests || exit /b 1
+  call mvn -o -q install -pl matheclipse-parser,matheclipse-core,matheclipse-image,matheclipse-graphtheory -am -DskipTests || exit /b 1
   popd
   pushd "%CONSOLE_DIR%" || exit /b 1
   call mvn -o -q package -DskipTests || exit /b 1
@@ -23,7 +23,7 @@ if "%~1"=="--build" (
 
 if not exist "%SYMJASCRIPT%" ( echo no %SYMJASCRIPT% - run with --build & exit /b 1 )
 if not exist "%WLJS_NOTEBOOK_DIR%\Packages\CSockets\Kernel\Symja.wl" (
-  echo no Symja adapter in %WLJS_NOTEBOOK_DIR% - check out the symja-backend branch & exit /b 1 )
+  echo no Symja adapter in %WLJS_NOTEBOOK_DIR% - update it to WLJSTeam/wljs-notebook main & exit /b 1 )
 
 echo Starting the notebook (about 90 s); open http://127.0.0.1:20560 once it says "Open http"
 cd /d "%WLJS_NOTEBOOK_DIR%"

@@ -15,7 +15,7 @@
 	<name>${project.groupId}:${project.artifactId}</name>
 	<description>Command-line REPL for Symja with auto-complete and syntax
 		highlighting</description>
-	<url>https://github.com/axkr/symja_android_library</url>
+	<url>https://github.com/axkr/symjascript</url>
 
 	<licenses>
 		<license>
@@ -41,15 +41,15 @@
 	</developers>
 
 	<scm>
-		<connection>scm:git:git://github.com/axkr/symja_android_library.git</connection>
-		<developerConnection>scm:git:git@github.com:axkr/symja_android_library.git</developerConnection>
-		<url>https://github.com/axkr/symja_android_library.git</url>
+		<connection>scm:git:git://github.com/axkr/symjascript.git</connection>
+		<developerConnection>scm:git:git@github.com:axkr/symjascript.git</developerConnection>
+		<url>https://github.com/axkr/symjascript.git</url>
 		<tag>HEAD</tag>
 	</scm>
 
 	<issueManagement>
 		<system>GitHub</system>
-		<url>https://github.com/axkr/symja_android_library/issues</url>
+		<url>https://github.com/axkr/symjascript/issues</url>
 	</issueManagement>
 
 	<properties>
@@ -339,7 +339,7 @@
 			</plugin>
 
 			<!-- Convenience launcher for local development:
-				target/appassembler/bin/symja -->
+				target/appassembler/bin/symjascript -->
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
 				<artifactId>appassembler-maven-plugin</artifactId>
@@ -378,7 +378,7 @@
 					<jreleaser>
 						<project>
 							<description>Symja MMA Language Console App</description>
-							<website>https://github.com/axkr/symja_android_library</website>
+							<website>https://github.com/axkr/symjascript</website>
 							<docsUrl>
 								https://github.com/axkr/symja_android_library/wiki/Console-apps</docsUrl>
 							<copyright>2026 Axel Kramer</copyright>
@@ -393,7 +393,7 @@
 						<release>
 							<github>
 								<owner>axkr</owner>
-								<name>symja_android_library</name>
+								<name>symjascript</name>
 								<overwrite>true</overwrite>
 							</github>
 						</release>
@@ -439,7 +439,8 @@
 	</build>
 
 	<profiles>
-		<!-- Profile for building a GraalVM native image in Ubuntu/WSL -->
+		<!-- GraalVM native image of symjascript for the platform the build runs on (native-image
+			does not cross-compile): mvn -Pnative verify -->
 		<profile>
 			<id>native</id>
 			<build>

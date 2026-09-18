@@ -135,4 +135,111 @@ public class SymjaScriptTest {
     // ...unless it is asked for
     assertEquals("4", run("-print", "-file", file.toString()).out.trim());
   }
+
+  // ---- argument order: wolframscript parses its own options after the script too ----
+
+  @Test
+  public void anOptionAfterTheScriptIsStillAnOption(@TempDir Path directory) throws IOException {
+    Path file = script(directory, "late.wls", "Print[$ScriptCommandLine];\n2 + 2\n");
+    Run result = run("-file", file.toString(), "-print");
+    assertEquals(0, result.status);
+    // -print was taken by symjascript, so the last result is printed and the script never sees it
+    assertEquals("{" + file + "}\n4", result.out.trim().replace("\r", ""));
+  }
+
+  @Test
+  public void whatSymjascriptDoesNotKnowReachesTheScript(@TempDir Path directory)
+      throws IOException {
+    Path file = script(directory, "args2.wls", "Print[$ScriptCommandLine];\n");
+    assertEquals("{" + file + ",2026,--verbose,x}",
+        run("-f", file.toString(), "2026", "--verbose", "x").out.trim());
+  }
+
+  @Test
+  public void doubleDashHandsTheRestToTheScript(@TempDir Path directory) throws IOException {
+    Path file = script(directory, "dash.wls", "Print[$ScriptCommandLine];\n2 + 2\n");
+    Run result = run("-f", file.toString(), "--", "-print", "all");
+    // after --, -print is the script's argument, not an instruction to print
+    assertEquals("{" + file + ",-print,all}", result.out.trim());
+  }
+
+  @Test
+  public void wstpAfterTheScriptIsTheScriptsArgument(@TempDir Path directory) throws IOException {
+    Path file = script(directory, "kernel.wls", "Print[$ScriptCommandLine];\n");
+    // before the script -wstp starts a kernel link; after it, it is only an argument
+    assertEquals("{" + file + ",-wstp}", run("-f", file.toString(), "-wstp").out.trim());
+    assertEquals("{" + file + ",-mathlink}", run(file.toString(), "-mathlink").out.trim());
+  }
+
+  // ---- exit status follows wolframscript: 0 unless Exit[n] ----
+
+  @Test
+  public void aSyntaxErrorInAScriptStillExitsZero(@TempDir Path directory) throws IOException {
+    Path file = script(directory, "broken.wls", "Print[\"x\"];\n1 + ;\n");
+    // wolframscript and mathicsscript both end with 0 here; only Exit[n] sets a status
+    assertEquals(0, run("-file", file.toString()).status);
+  }
+
+  // ---- -timeout seconds [value] ----
+
+  @Test
+  public void anExpiredTimeoutPrintsTimedOut() {
+    assertTrue(run("-timeout", "1", "-code", "Pause[3]; 1").out.contains("$TimedOut"));
+  }
+
+  @Test
+  public void theTimeoutValueReplacesTheResult() {
+    assertEquals("7", run("-timeout", "1", "7", "-code", "Pause[3]; 1").out.trim());
+  }
+
+  @Test
+  public void abortIsNotATimeout() {
+    // a real Abort[] must still read $Aborted, not the timeout value
+    assertEquals("$Aborted", run("-timeout", "5", "-code", "Abort[]").out.trim());
+  }
+
+  @Test
+  public void exitStillEndsTheProcessUnderATimeout(@TempDir Path directory) throws IOException {
+    // the evaluation runs on another thread; Exit[n] must still come back as the status
+    assertEquals(6, run("-timeout", "5", "-code", "Exit[6]").status);
+    Path file = script(directory, "exit2.wls", "Exit[7];\n");
+    assertEquals(7, run("-timeout", "5", "-file", file.toString()).status);
+  }
+
+  @Test
+  public void aTimeoutLimitsEachStatementOfAScript(@TempDir Path directory) throws IOException {
+    Path file = script(directory, "slow.wls", "Pause[3]\nPrint[\"after\"];\n");
+    Run result = run("-timeout", "1", "-print", "all", "-file", file.toString());
+    // the slow statement gives $TimedOut, and the script carries on with the next one
+    assertTrue(result.out.contains("$TimedOut"), result.out);
+    assertTrue(result.out.contains("after"), result.out);
+  }
+
+  // ---- -linewise ----
+
+  @Test
+  public void linewiseBindsScriptInputString() {
+    Run result = runWithStdin("ab\ncd\n", "-code", "StringReverse[$ScriptInputString]",
+        "-linewise");
+    assertEquals("ba\ndc", result.out.trim().replace("\r", ""));
+  }
+
+  @Test
+  public void linewiseKeepsScriptLineAsAnAlias() {
+    Run result = runWithStdin("x\n", "-code", "$ScriptLine == $ScriptInputString", "-linewise");
+    assertEquals("True", result.out.trim());
+  }
+
+  @Test
+  public void scriptInputStringIsNoneWithoutLinewise() {
+    // as outside wolframscript; a previous -linewise run in this JVM must not leak its last line
+    runWithStdin("leak\n", "-code", "$ScriptInputString", "-linewise");
+    assertEquals("None", run("-code", "$ScriptInputString").out.trim());
+  }
+
+  @Test
+  public void aBareScriptMayFollowOptions(@TempDir Path directory) throws IOException {
+    Path file = script(directory, "late2.wls", "2 + 2\n");
+    assertEquals("4", run("-print", "all", file.toString()).out.trim());
+  }
 }

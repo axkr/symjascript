@@ -27,7 +27,7 @@ import org.matheclipse.core.basic.Config;
 import org.matheclipse.core.basic.ToggleFeature;
 import org.matheclipse.core.convert.AST2Expr;
 import org.matheclipse.core.eval.Errors;
-import org.matheclipse.core.eval.EvalControlledCallable;
+import org.matheclipse.core.eval.TimeConstrainedExecutor;
 import org.matheclipse.core.eval.EvalEngine;
 import org.matheclipse.core.eval.util.AwtSupport;
 import org.matheclipse.core.eval.tasks.EventLoop;
@@ -57,6 +57,8 @@ import org.matheclipse.parser.client.Scanner;
 import org.matheclipse.parser.client.SyntaxError;
 import org.matheclipse.parser.client.ast.ASTNode;
 import org.matheclipse.parser.client.math.MathException;
+import com.google.common.util.concurrent.SimpleTimeLimiter;
+import com.google.common.util.concurrent.TimeLimiter;
 
 /**
  * A read-eval-print loop console for Mathematica like syntax input of expressions.
@@ -155,8 +157,9 @@ public class SymjaScript {
    */
   private static int run(final String args[]) {
     exitStatus = 0;
-    // one run must not decide how the next one reports $VersionNumber
+    // one run must not decide how the next one reports $VersionNumber, or what it reads from stdin
     Config.WOLFRAMSCRIPT_COMPAT = false;
+    Config.SCRIPT_INPUT_STRING = null;
     Locale.setDefault(Locale.US);
     ParserConfig.PARSER_USE_LOWERCASE_SYMBOLS = false;
     ToggleFeature.COMPILE = true;
@@ -378,15 +381,33 @@ public class SymjaScript {
     Config.COMMAND_LINE = commandLine;
   }
 
+  /** Options whose next token is their value, so that token is never a script file. */
+  private static final String[] VALUE_OPTIONS = {"-code", "-c", "-function", "-fun", "-format",
+      "-charset", "-initfile", "-default", "-d", "-timeout", "-local", "-l"};
+
   /**
-   * Does this command line ask for one-shot work rather than a session? Then the process's own
-   * streams are used, so that a shell redirection reaches the output and diagnostics stay out of it.
+   * Was this kernel started to be driven over a link, rather than by a person?
+   *
+   * <p>
+   * <code>-wstp</code> and <code>-mathlink</code> are kernel options (they belong to WolframKernel,
+   * not wolframscript) and only count before the script. After it they are ordinary arguments of the
+   * script, so <code>symjascript -f server.wls -wstp</code> runs the script and hands it
+   * <code>-wstp</code> rather than turning into a kernel.
    */
-  /** Was this kernel started to be driven over a link, rather than by a person? */
   private static boolean isKernelLink(final String args[]) {
-    for (String arg : args) {
+    for (int i = 0; i < args.length; i++) {
+      String arg = args[i];
       if (arg.equals("-wstp") || arg.equals("-mathlink")) {
         return true;
+      }
+      if (arg.equals("-file") || arg.equals("-f") || arg.equals("-script")) {
+        // everything from the script on belongs to the script
+        return false;
+      }
+      boolean isValue = i > 0 && contains(VALUE_OPTIONS, args[i - 1]);
+      if (!isOption(arg) && !isValue && new File(arg).isFile()) {
+        // a bare script file, as in `symjascript report.wls -wstp`
+        return false;
       }
     }
     return false;
@@ -440,23 +461,27 @@ public class SymjaScript {
   }
 
   /**
-   * The bare argument naming a script, as in <code>symjascript report.wls 2026</code>, or
-   * <code>null</code> when the command line does not start with one. Only the first bare token is
-   * considered, and only when it names a readable file, so that a mistyped option is still reported
-   * as an unknown option rather than silently ignored.
+   * The bare argument naming a script, as in <code>symjascript report.wls 2026</code> or
+   * <code>symjascript -print all report.wls</code>, or <code>null</code> when there is none. This
+   * follows the parser: options, the values of options that take one and the <code>all</code> of
+   * <code>-print all</code> are skipped, and the first remaining token is the script if it names a
+   * file. Deciding the same way matters, because a script run without being detected here would get
+   * the terminal's writer and ignore a shell redirection.
    */
   private static String scriptFileArgument(final String args[]) {
-    for (String arg : args) {
+    for (int i = 0; i < args.length; i++) {
+      String arg = args[i];
       if (isOption(arg)) {
-        // any option decides how the run works; a bare script only counts before one
-        return null;
+        continue;
+      }
+      if (i > 0 && (contains(VALUE_OPTIONS, args[i - 1])
+          || (args[i - 1].equals("-print") && arg.equalsIgnoreCase("all")))) {
+        continue;
       }
       return new File(arg).isFile() ? arg : null;
     }
     return null;
   }
-
-
 
   private String resultPrinter(String inputExpression) {
     String outputExpression = interpreter(inputExpression);
@@ -479,62 +504,53 @@ public class SymjaScript {
         "Symja Console Wiki: https://github.com/axkr/symja_android_library/wiki/Console-apps")
         .append(lineSeparator);
     msg.append(lineSeparator);
-    msg.append("org.matheclipse.console.SymjaScript [options]").append(lineSeparator);
+    msg.append("Usage:").append(lineSeparator);
+    msg.append("  symjascript [options]                                  interactive session").append(lineSeparator);
+    msg.append("  symjascript [options] -code <code>                     evaluate code and print the result").append(lineSeparator);
+    msg.append("  symjascript [options] [-f|-script] <file> [args...]    run a script").append(lineSeparator);
+    msg.append("  symjascript [options] -function <f> -args <values...>  evaluate f[values]").append(lineSeparator);
+    msg.append("  symjascript [options] < program                        run a program from stdin").append(lineSeparator);
+    msg.append("  symjascript -wstp                                      serve a kernel link on stdin/stdout").append(lineSeparator);
     msg.append(lineSeparator);
-    msg.append("Program arguments: ").append(lineSeparator);
-    msg.append("  -c, -code <code>            evaluate the code").append(lineSeparator);
-    msg.append("  <file>                      evaluate a script file, as with -file")
-        .append(lineSeparator);
-    msg.append("  -f, -file, -script <file>   evaluate a script file; a #! first line is")
-        .append(lineSeparator);
-    msg.append("                              ignored, and everything after the file is passed")
-        .append(lineSeparator);
-    msg.append("                              to the script - put options before -f")
-        .append(lineSeparator);
-    msg.append("  -fun, -function <f>         evaluate a function, with -args")
-        .append(lineSeparator);
-    msg.append(
-        "  -s, -signature <type>...    types for the -args values (String, Integer, Real, ...)")
-        .append(lineSeparator);
-    msg.append("  -a, -args, -- <value>...    values passed to -function").append(lineSeparator);
-    msg.append("  -format <type>              write the result to stdout as SVG, Base64,")
-        .append(lineSeparator);
-    msg.append("                              ExpressionJSON, Table, or a raster format such")
-        .append(lineSeparator);
-    msg.append("                              as PNG (raster needs AWT - see the README)")
-        .append(lineSeparator);
-    msg.append("  -charset <encoding>         encoding for the output").append(lineSeparator);
-    msg.append("  -linewise                   run the code once per line of stdin, as $ScriptLine")
-        .append(lineSeparator);
-    msg.append("  -print [all]                print the last result, or every result with 'all'")
-        .append(lineSeparator);
-    msg.append("  -timeout <secs> [value]     abort an evaluation after secs, returning value")
-        .append(lineSeparator);
-    msg.append("  -l, -local [kernelpath]     accepted and ignored - symjascript is always local")
-        .append(lineSeparator);
-    msg.append("  -initfile <file>            evaluate an extra file at start-up (repeatable)")
-        .append(lineSeparator);
-    msg.append("  -noinit                     skip Kernel/init.m and the Autoload directories")
-        .append(lineSeparator);
+    msg.append("Options:").append(lineSeparator);
+    msg.append("  -c, -code <code>            evaluate the code and print its result").append(lineSeparator);
+    msg.append("  <file>                      run a script file (the first argument that is not").append(lineSeparator);
+    msg.append("                              an option or an option's value)").append(lineSeparator);
+    msg.append("  -f, -file, -script <file>   run a script file; a #! first line is ignored").append(lineSeparator);
+    msg.append("  -fun, -function <f>         evaluate a function, with -args").append(lineSeparator);
+    msg.append("  -s, -signature <type>...    types of the -args values: String, Integer, Real,").append(lineSeparator);
+    msg.append("                              Number or Expression").append(lineSeparator);
+    msg.append("  -a, -args <value>...        values passed to -function").append(lineSeparator);
+    msg.append("  --                          with -function: same as -args; after a script file:").append(lineSeparator);
+    msg.append("                              everything after -- goes to the script unchanged").append(lineSeparator);
+    msg.append("  -format <type>              write the result to stdout as SVG, Base64,").append(lineSeparator);
+    msg.append("                              ExpressionJSON, Table, or a raster format such as").append(lineSeparator);
+    msg.append("                              PNG/JPEG/GIF/BMP/TIFF/PNM (raster needs AWT)").append(lineSeparator);
+    msg.append("  -charset <encoding>         encoding for the output and for reading the script").append(lineSeparator);
+    msg.append("  -linewise                   run the code once per line of stdin; the line is").append(lineSeparator);
+    msg.append("                              $ScriptInputString (also $ScriptLine)").append(lineSeparator);
+    msg.append("  -print [all]                for a script: print the last result, or every result").append(lineSeparator);
+    msg.append("  -timeout <secs> [value]     limit each evaluation (each statement of a script);").append(lineSeparator);
+    msg.append("                              an expired one gives value, or $TimedOut").append(lineSeparator);
+    msg.append("  -l, -local [kernelpath]     accepted and ignored - symjascript is always local").append(lineSeparator);
+    msg.append("  -initfile <file>            evaluate an extra file at start-up (repeatable)").append(lineSeparator);
+    msg.append("  -noinit                     skip Kernel/init.m and the Autoload directories").append(lineSeparator);
     msg.append("  -d, -default <file>         older spelling of -initfile").append(lineSeparator);
-    msg.append("  -v, -verbose                report which start-up files were loaded")
-        .append(lineSeparator);
+    msg.append("  -v, -verbose                report which start-up files were loaded").append(lineSeparator);
+    msg.append("  -wstp, -mathlink            kernel link mode; only before a script file").append(lineSeparator);
     msg.append("  -version                    print the version and exit").append(lineSeparator);
     msg.append("  -h, -help                   print this message").append(lineSeparator);
     msg.append(lineSeparator);
-    msg.append("  symjascript -code 'Plot[Sin[x],{x,0,10}]' -format SVG > plot.svg")
-        .append(lineSeparator);
-    msg.append(lineSeparator);
-    msg.append("To stop the program type: /exit<RETURN>").append(lineSeparator);
-    msg.append(
-        "To get the available identifiers type: ident<TAB> (and press further TABs to select the completion)")
-        .append(lineSeparator);
-    msg.append("To disable the evaluation timeout type: /timeoutoff<RETURN>").append(lineSeparator);
-    msg.append("To enable the evaluation timeout type: /timeouton<RETURN>").append(lineSeparator);
-    msg.append("To enable the output in Java form: /java<RETURN>").append(lineSeparator);
-    msg.append("To enable the output in standard form: /output<RETURN>").append(lineSeparator);
-    msg.append("To enable the output in traditional form: /traditional<RETURN>")
-        .append(lineSeparator);
+    msg.append("Options are recognised anywhere, also after the script file: `-f report.wls -print`").append(lineSeparator);
+    msg.append("prints the last result. Anything that is not an option is passed to the script as").append(lineSeparator);
+    msg.append("$ScriptCommandLine = {script, args...}; use -- to pass arguments that look like options.").append(lineSeparator);
+    msg.append("").append(lineSeparator);
+    msg.append("  symjascript -code 'Plot[Sin[x],{x,0,10}]' -format SVG > plot.svg").append(lineSeparator);
+    msg.append("").append(lineSeparator);
+    msg.append("The exit status is 0 unless Exit[n] sets it; invalid options and missing files give 1.").append(lineSeparator);
+    msg.append("").append(lineSeparator);
+    msg.append("Interactive commands: /exit, /java, /input, /output, /pretty, /traditional,").append(lineSeparator);
+    msg.append("/timeoutoff, /timeouton. Press TAB to complete a function name, ?Name for help.").append(lineSeparator);
     msg.append("****+****+****+****+****+****+****+****+****+****+****+****+");
 
     stdout.println(msg.toString());
@@ -577,10 +593,13 @@ public class SymjaScript {
     String function = null;
     List<String> functionArgs = null;
     List<String> signature = new ArrayList<String>();
-    // Bare tokens are the arguments the script itself receives, as in
+    // The arguments the script itself receives, as in
     // ./report.m 2026 --verbose
     // which reaches us as: -f ./report.m 2026 --verbose
+    // Recognised options are taken out wherever they stand; everything else lands here.
     List<String> scriptArgs = new ArrayList<String>();
+    // set once the script file is known; from then on an unrecognised token is the script's own
+    boolean scriptSeen = false;
 
     for (int i = 0; i < args.length; i++) {
       final String arg = args[i];
@@ -594,15 +613,10 @@ public class SymjaScript {
         // argument does not name a file, say so rather than failing obscurely later.
         file = requireValue(args, i, arg.equals("-script") ? "-script" : "-file");
         i++;
-        // Option parsing stops at the script, the way python, perl and node do it:
-        // everything after it belongs to the script. A script's own arguments often start
-        // with a dash - `./report.m --verbose` arrives here as `-f ./report.m --verbose` -
-        // and they must reach the script rather than be read as interpreter options.
-        // Put interpreter options before -f: `symjascript -print all -f report.m`.
-        for (int j = i + 1; j < args.length; j++) {
-          scriptArgs.add(args[j]);
-        }
-        i = args.length;
+        // Parsing goes on after the script, the way wolframscript does it: an option
+        // symjascript knows is still an option (`-file report.wls -print`), and only what it
+        // does not recognise becomes an argument of the script. See the branches below.
+        scriptSeen = true;
 
       } else if (arg.equals("-function") || arg.equals("-fun")) {
         function = requireValue(args, i, "-function");
@@ -612,6 +626,14 @@ public class SymjaScript {
         while (i + 1 < args.length && !isOption(args[i + 1])) {
           signature.add(args[++i]);
         }
+
+      } else if (scriptSeen && arg.equals("--")) {
+        // After the script, `--` ends option parsing: the rest reaches the script as written,
+        // so a script can still be given an argument that looks like one of our options.
+        for (int j = i + 1; j < args.length; j++) {
+          scriptArgs.add(args[j]);
+        }
+        i = args.length;
 
       } else if (arg.equals("-args") || arg.equals("-a") || arg.equals("--")) {
         // everything after -args is a value, never an option
@@ -694,6 +716,11 @@ public class SymjaScript {
             + " symjascript always evaluates locally.");
         throw ReturnException.RETURN_FALSE;
 
+      } else if (isOption(arg) && scriptSeen) {
+        // not one of ours, and a script is running: it is the script's argument - including
+        // -wstp and -mathlink, which start a kernel link only before the script
+        scriptArgs.add(arg);
+
       } else if (isOption(arg)) {
         fail("symjascript: unknown option " + arg);
         printUsage();
@@ -702,12 +729,9 @@ public class SymjaScript {
       } else if (file == null && code == null && function == null && scriptArgs.isEmpty()
           && new File(arg).isFile()) {
         // `symjascript report.wls 2026 --verbose`, the way wolframscript and a #! line run a
-        // script. Everything after it belongs to the script, exactly as with -file.
+        // script. What follows is parsed exactly as after -file.
         file = arg;
-        for (int j = i + 1; j < args.length; j++) {
-          scriptArgs.add(args[j]);
-        }
-        i = args.length;
+        scriptSeen = true;
 
       } else {
         scriptArgs.add(arg);
@@ -842,7 +866,8 @@ public class SymjaScript {
 
   /**
    * Evaluate a chunk of Symja source. With <code>-linewise</code> the source is run once per line
-   * of stdin, with the line available as <code>$ScriptLine</code>.
+   * of stdin, with the line available as <code>$ScriptInputString</code> (and
+   * <code>$ScriptLine</code>).
    */
   private void runSource(String source, String origin) {
     if (!fLinewise) {
@@ -851,12 +876,15 @@ public class SymjaScript {
     }
     try (BufferedReader in = new BufferedReader(new InputStreamReader(System.in,
         fCharset == null ? Charset.defaultCharset() : Charset.forName(fCharset)))) {
-      // $ScriptLine is assigned here. The assignment goes through the
-      // same evaluator that runs the code: building the Set() with F.$s() instead
-      // resolves the symbol in a different context, and the first line then sees
-      // $ScriptLine still unbound.
+      // The line is $ScriptInputString, as in wolframscript; $ScriptLine is the name this
+      // console used first and stays as an alias. $ScriptLine goes through the same evaluator
+      // that runs the code: building the Set() with F.$s() instead resolves the symbol in a
+      // different context, and the first line then sees it still unbound.
       String line;
       while ((line = in.readLine()) != null) {
+        // $ScriptInputString is a built-in which reads Config.SCRIPT_INPUT_STRING;
+        // $ScriptLine is an ordinary symbol and is assigned
+        Config.SCRIPT_INPUT_STRING = F.stringx(line);
         fEvaluator.eval("$ScriptLine = \"" + escapeForSymja(line) + "\"");
         evaluateAndPrint(source, true);
       }
@@ -947,7 +975,9 @@ public class SymjaScript {
     IExpr last = F.NIL;
     for (ASTNode node : nodes) {
       IExpr expr = ast2Expr.convert(node);
-      last = engine.evaluate(expr);
+      // -timeout limits each top-level statement; an expired one yields the timeout value and the
+      // script goes on with the next statement
+      last = fSeconds > 0 ? evaluateLimited(expr, engine, false) : engine.evaluate(expr);
       // between two statements the script is idle, so anything that arrived meanwhile runs here
       EventLoop.INSTANCE.pump(engine);
       if (PRINT_ALL.equals(fPrintMode)) {
@@ -1022,6 +1052,73 @@ public class SymjaScript {
     return value;
   }
 
+  /**
+   * Evaluate <code>expr</code> within the <code>-timeout</code> limit and answer, when the limit is
+   * reached, the value given to <code>-timeout</code> - or <code>$TimedOut</code>, as
+   * wolframscript does. Whatever was printed before the limit stays printed.
+   *
+   * <p>
+   * This mirrors <code>ExprEvaluator.evaluateWithTimeout</code> rather than calling it, for two
+   * reasons. That method answers <code>$Aborted</code> for a timeout, which cannot be told apart from
+   * a real <code>Abort[]</code>. And it runs an <code>EvalControlledCallable</code>, which turns every
+   * <code>RuntimeException</code> into <code>$Aborted</code> - including <code>Exit[n]</code>, so a
+   * script run with <code>-timeout</code> could no longer end itself with a status. Here exceptions
+   * cross back to the caller unchanged.
+   *
+   * @param recordInOut whether the evaluation joins the <code>In</code>/<code>Out</code> history,
+   *        as an interactive input does and a script statement does not
+   */
+  private IExpr evaluateLimited(final IExpr expr, final EvalEngine engine, boolean recordInOut) {
+    TimeConstrainedExecutor executor = TimeConstrainedExecutor.create();
+    try {
+      TimeLimiter limiter = SimpleTimeLimiter.create(executor.service());
+      return limiter.callWithTimeout(() -> {
+        EvalEngine.remove();
+        EvalEngine.setReset(engine);
+        IExpr result = engine.evaluate(expr);
+        if (recordInOut && !engine.isOutListDisabled()) {
+          engine.addInOut(expr, result);
+        }
+        return result;
+      }, fSeconds, TimeUnit.SECONDS);
+    } catch (java.util.concurrent.TimeoutException timedOut) {
+      EvalEngine.set(engine);
+      return timeoutResult(engine);
+    } catch (java.util.concurrent.ExecutionException
+        | com.google.common.util.concurrent.UncheckedExecutionException wrapped) {
+      // the evaluation threw: rethrow what it threw, so Exit[], Abort[] and errors behave as
+      // they do without -timeout
+      Throwable cause = wrapped.getCause();
+      if (cause instanceof RuntimeException) {
+        throw (RuntimeException) cause;
+      }
+      if (cause instanceof Error) {
+        throw (Error) cause;
+      }
+      throw new RuntimeException(cause);
+    } catch (InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+      return S.$Aborted;
+    } finally {
+      executor.dispose();
+      // the evaluation ran on another thread; this one must go on with the same engine
+      EvalEngine.set(engine);
+    }
+  }
+
+  /** The value of an expired <code>-timeout</code>: its optional value, or <code>$TimedOut</code>. */
+  private IExpr timeoutResult(EvalEngine engine) {
+    if (fTimeoutValue == null) {
+      return S.$TimedOut;
+    }
+    try {
+      IExpr value = engine.parse(fTimeoutValue);
+      return value == null ? F.stringx(fTimeoutValue) : engine.evaluate(value);
+    } catch (RuntimeException notAnExpression) {
+      return F.stringx(fTimeoutValue);
+    }
+  }
+
   /* package private */ String interpreter(final String trimmedInput) {
     IExpr result;
     final StringBuilderWriter buf = new StringBuilderWriter();
@@ -1029,8 +1126,9 @@ public class SymjaScript {
       if (fSeconds <= 0) {
         result = fEvaluator.eval(trimmedInput);
       } else {
-        result = fEvaluator.evaluateWithTimeout(trimmedInput, fSeconds, TimeUnit.SECONDS, true,
-            new EvalControlledCallable(fEvaluator.getEvalEngine()));
+        EvalEngine engine = fEvaluator.getEvalEngine();
+        IExpr parsed = engine.parse(trimmedInput);
+        result = parsed == null ? F.NIL : evaluateLimited(parsed, engine, true);
       }
       if (result != F.NIL) {
         return printResult(result);
@@ -1144,8 +1242,10 @@ public class SymjaScript {
    * macOS - see oracle/graal#13272. The attempt is made anyway and the {@link UnsatisfiedLinkError}
    * is caught, so the same binary works wherever AWT does.
    */
+  // Only formats with an ImageIO writer on the classpath. WEBP, TGA, ICO and PSD were listed too, but
+  // the TwelveMonkeys plug-ins for them only read, so they could never produce a file.
   private static final String[] RASTER_FORMATS =
-      {"PNG", "JPEG", "JPG", "GIF", "BMP", "TIFF", "TIF", "WEBP", "PNM", "TGA", "ICO", "PSD"};
+      {"PNG", "JPEG", "JPG", "GIF", "BMP", "TIFF", "TIF", "PNM"};
 
   private static boolean contains(String[] formats, String format) {
     for (String candidate : formats) {
@@ -1225,9 +1325,13 @@ public class SymjaScript {
         return "";
       }
       System.out.flush();
-    } catch (UnsatisfiedLinkError | NoClassDefFoundError awtMissing) {
+    } catch (LinkageError awtMissing) {
       // Native images on macOS have no AWT at all (oracle/graal#13272), so the raster
-      // formats cannot work there. Say so instead of dying with a link error.
+      // formats cannot work there. The first failure is an ExceptionInInitializerError, later
+      // ones NoClassDefFoundError; AwtSupport knows both. Anything else is a real fault.
+      if (!AwtSupport.isMissingNativeLibrary(awtMissing)) {
+        throw awtMissing;
+      }
       fail("symjascript: " + fOutputFormat
           + " needs AWT, which this build does not have. Use -format SVG instead.");
     } catch (IOException ioe) {

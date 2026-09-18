@@ -7,7 +7,7 @@
 #
 # Environment (defaults assume the three repositories are checked out side by side):
 #   SYMJA_DIR         symja_android_library checkout
-#   WLJS_NOTEBOOK_DIR wljs-notebook checkout, on the symja-backend branch
+#   WLJS_NOTEBOOK_DIR wljs-notebook checkout (WLJSTeam/wljs-notebook, main)
 #   WLJS_LOG          log file (default: target/wljs-notebook.log)
 #
 # Ctrl-C stops the master kernel and the evaluation kernel it launched.
@@ -34,7 +34,7 @@ done
 
 if $build; then
   echo ">> building symja (parser, core) in $SYMJA_DIR"
-  (cd "$SYMJA_DIR/symja_android_library" && mvn -o -q install -pl matheclipse-parser,matheclipse-core -DskipTests)
+  (cd "$SYMJA_DIR/symja_android_library" && mvn -o -q install -pl matheclipse-parser,matheclipse-core,matheclipse-image,matheclipse-graphtheory -am -DskipTests)
   echo ">> building the console in $CONSOLE_DIR"
   (cd "$CONSOLE_DIR" && mvn -o -q package -DskipTests)
 fi
@@ -42,7 +42,7 @@ fi
 [ -x "$SYMJASCRIPT" ] || { echo "no $SYMJASCRIPT - run with --build" >&2; exit 1; }
 [ -f "$WLJS_NOTEBOOK_DIR/Scripts/start.wls" ] || { echo "no WLJS checkout at $WLJS_NOTEBOOK_DIR (set WLJS_NOTEBOOK_DIR)" >&2; exit 1; }
 [ -f "$WLJS_NOTEBOOK_DIR/Packages/CSockets/Kernel/Symja.wl" ] || {
-  echo "the WLJS checkout has no Symja socket adapter - check out the symja-backend branch" >&2; exit 1; }
+  echo "the WLJS checkout has no Symja socket adapter - update it to WLJSTeam/wljs-notebook main" >&2; exit 1; }
 
 for port in 20560 20559; do
   if lsof -nP -iTCP:$port -sTCP:LISTEN >/dev/null 2>&1; then

@@ -18,6 +18,9 @@ reached the file and how many leaked to the terminal.
 
     python3 ptyrun.py /tmp/out.svg ../../../target/symjascript -code 'Plot[Sin[x],{x,0,10}]' -format SVG
 
+`target/symjascript` is the native binary from `mvn -Pnative package`. To test
+the JVM build instead, use `../../../target/appassembler/bin/symjascript`.
+
 Expect the file to hold the SVG and the terminal to receive nothing.
 
 ## ptytype.py

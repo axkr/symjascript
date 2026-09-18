@@ -11,11 +11,13 @@ Needs, checked out next to this repository (or pointed to with `SYMJA_DIR` and
 `WLJS_NOTEBOOK_DIR`):
 
 * `symja_android_library`, whose core the console is built against;
-* `wljs-notebook` on the `symja-backend` branch (fork `axkr/wljs-notebook`),
-  which carries the Symja socket adapter `Packages/CSockets/Kernel/Symja.wl`.
+* `wljs-notebook` (`WLJSTeam/wljs-notebook`, `main`), which carries the Symja
+  socket adapter `Packages/CSockets/Kernel/Symja.wl`.
 
-`--build` reinstalls symja's parser and core into `~/.m2` and repackages the
-console, which is what a change in core needs before the notebook sees it. The
+`--build` reinstalls symja's parser, core, image and graphtheory modules (with
+the modules they depend on) into `~/.m2` and repackages the console, which is
+what a change in core needs before the notebook sees it. The notebook runs the
+JVM launcher `target/appassembler/bin/symjascript`, not the native binary. The
 notebook takes about 90 s to start; it is ready when the log says
 `Open http://127.0.0.1:20560 in your browser`. Ctrl-C stops both kernels.
 
