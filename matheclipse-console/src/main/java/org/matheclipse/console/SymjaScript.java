@@ -27,22 +27,21 @@ import org.matheclipse.core.basic.Config;
 import org.matheclipse.core.basic.ToggleFeature;
 import org.matheclipse.core.convert.AST2Expr;
 import org.matheclipse.core.eval.Errors;
-import org.matheclipse.core.eval.TimeConstrainedExecutor;
 import org.matheclipse.core.eval.EvalEngine;
-import org.matheclipse.core.eval.util.AwtSupport;
-import org.matheclipse.core.eval.tasks.EventLoop;
 import org.matheclipse.core.eval.ExprEvaluator;
+import org.matheclipse.core.eval.TimeConstrainedExecutor;
 import org.matheclipse.core.eval.exception.AbortException;
 import org.matheclipse.core.eval.exception.ExitException;
 import org.matheclipse.core.eval.exception.FailedException;
 import org.matheclipse.core.eval.exception.ReturnException;
 import org.matheclipse.core.eval.exception.Validate;
+import org.matheclipse.core.eval.tasks.EventLoop;
+import org.matheclipse.core.eval.util.AwtSupport;
 import org.matheclipse.core.eval.util.InitFileLoader;
 import org.matheclipse.core.eval.util.PackageUtil;
 import org.matheclipse.core.eval.util.SourceCodeProperties;
 import org.matheclipse.core.eval.util.SymjaDirectories;
 import org.matheclipse.core.expression.F;
-import org.matheclipse.core.io.link.KernelLinkServer;
 import org.matheclipse.core.expression.S;
 import org.matheclipse.core.form.Documentation;
 import org.matheclipse.core.form.output.ASCIIPrettyPrinter3;
@@ -50,6 +49,7 @@ import org.matheclipse.core.form.output.OutputFormFactory;
 import org.matheclipse.core.interfaces.IASTAppendable;
 import org.matheclipse.core.interfaces.IExpr;
 import org.matheclipse.core.interfaces.ISymbol;
+import org.matheclipse.core.io.link.KernelLinkServer;
 import org.matheclipse.graphtheory.GraphTheoryInit;
 import org.matheclipse.image.ImageInit;
 import org.matheclipse.parser.client.ParserConfig;
@@ -61,7 +61,7 @@ import com.google.common.util.concurrent.SimpleTimeLimiter;
 import com.google.common.util.concurrent.TimeLimiter;
 
 /**
- * A read-eval-print loop console for Mathematica like syntax input of expressions.
+ * A read-eval-print loop console for WMA like syntax input of expressions.
  */
 public class SymjaScript {
 
@@ -237,6 +237,17 @@ public class SymjaScript {
       stdout.flush();
       stderr.flush();
       return ee.getExitCode();
+    } catch (LinkageError le) {
+      // A script, a program on stdin and -function evaluate without interpreter(), so this is
+      // where their last line of defence has to be: a builtin that needs AWT is reported by the
+      // evaluator, but the same failure outside one - formatting an Image result, say - would
+      // otherwise leave a stack trace behind. Anything that is not a missing AWT is a real fault.
+      if (!AwtSupport.isMissingNativeLibrary(le)) {
+        throw le;
+      }
+      fail(AWT_UNAVAILABLE);
+      stdout.flush();
+      return exitStatus;
     }
     LineReader reader = LineReaderBuilder.builder().terminal(terminal)
         .completer(new SymjaCompleter()).highlighter(new SymjaHighlighter()).build();
@@ -390,8 +401,8 @@ public class SymjaScript {
    *
    * <p>
    * <code>-wstp</code> and <code>-mathlink</code> are kernel options (they belong to WolframKernel,
-   * not wolframscript) and only count before the script. After it they are ordinary arguments of the
-   * script, so <code>symjascript -f server.wls -wstp</code> runs the script and hands it
+   * not wolframscript) and only count before the script. After it they are ordinary arguments of
+   * the script, so <code>symjascript -f server.wls -wstp</code> runs the script and hands it
    * <code>-wstp</code> rather than turning into a kernel.
    */
   private static boolean isKernelLink(final String args[]) {
@@ -419,16 +430,16 @@ public class SymjaScript {
    *
    * <p>
    * Standard output belongs to the link from here on, so everything which would otherwise be
-   * printed there - the banner, a <code>Print</code>, a message - is moved out of the way: what
-   * the evaluation prints travels as packets instead, and what Java itself writes goes to standard
-   * error, where a person looking at the parent's console can see it. A stray character on
-   * standard output would be read as a frame and end the conversation.
+   * printed there - the banner, a <code>Print</code>, a message - is moved out of the way: what the
+   * evaluation prints travels as packets instead, and what Java itself writes goes to standard
+   * error, where a person looking at the parent's console can see it. A stray character on standard
+   * output would be read as a frame and end the conversation.
    */
   private static int runKernelLink() {
     java.io.OutputStream frames = new java.io.FileOutputStream(java.io.FileDescriptor.out);
     java.io.InputStream packets = System.in;
-    System.setOut(new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.err), true,
-        java.nio.charset.StandardCharsets.UTF_8));
+    System.setOut(new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.err),
+        true, java.nio.charset.StandardCharsets.UTF_8));
     Config.PRINT_OUT = x -> {
     };
     // a script driven over a link is a wolframscript, so $VersionNumber says what it is compatible
@@ -505,52 +516,92 @@ public class SymjaScript {
         .append(lineSeparator);
     msg.append(lineSeparator);
     msg.append("Usage:").append(lineSeparator);
-    msg.append("  symjascript [options]                                  interactive session").append(lineSeparator);
-    msg.append("  symjascript [options] -code <code>                     evaluate code and print the result").append(lineSeparator);
-    msg.append("  symjascript [options] [-f|-script] <file> [args...]    run a script").append(lineSeparator);
-    msg.append("  symjascript [options] -function <f> -args <values...>  evaluate f[values]").append(lineSeparator);
-    msg.append("  symjascript [options] < program                        run a program from stdin").append(lineSeparator);
-    msg.append("  symjascript -wstp                                      serve a kernel link on stdin/stdout").append(lineSeparator);
+    msg.append("  symjascript [options]                                  interactive session")
+        .append(lineSeparator);
+    msg.append(
+        "  symjascript [options] -code <code>                     evaluate code and print the result")
+        .append(lineSeparator);
+    msg.append("  symjascript [options] [-f|-script] <file> [args...]    run a script")
+        .append(lineSeparator);
+    msg.append("  symjascript [options] -function <f> -args <values...>  evaluate f[values]")
+        .append(lineSeparator);
+    msg.append("  symjascript [options] < program                        run a program from stdin")
+        .append(lineSeparator);
+    msg.append(
+        "  symjascript -wstp                                      serve a kernel link on stdin/stdout")
+        .append(lineSeparator);
     msg.append(lineSeparator);
     msg.append("Options:").append(lineSeparator);
-    msg.append("  -c, -code <code>            evaluate the code and print its result").append(lineSeparator);
-    msg.append("  <file>                      run a script file (the first argument that is not").append(lineSeparator);
-    msg.append("                              an option or an option's value)").append(lineSeparator);
-    msg.append("  -f, -file, -script <file>   run a script file; a #! first line is ignored").append(lineSeparator);
-    msg.append("  -fun, -function <f>         evaluate a function, with -args").append(lineSeparator);
-    msg.append("  -s, -signature <type>...    types of the -args values: String, Integer, Real,").append(lineSeparator);
+    msg.append("  -c, -code <code>            evaluate the code and print its result")
+        .append(lineSeparator);
+    msg.append("  <file>                      run a script file (the first argument that is not")
+        .append(lineSeparator);
+    msg.append("                              an option or an option's value)")
+        .append(lineSeparator);
+    msg.append("  -f, -file, -script <file>   run a script file; a #! first line is ignored")
+        .append(lineSeparator);
+    msg.append("  -fun, -function <f>         evaluate a function, with -args")
+        .append(lineSeparator);
+    msg.append("  -s, -signature <type>...    types of the -args values: String, Integer, Real,")
+        .append(lineSeparator);
     msg.append("                              Number or Expression").append(lineSeparator);
     msg.append("  -a, -args <value>...        values passed to -function").append(lineSeparator);
-    msg.append("  --                          with -function: same as -args; after a script file:").append(lineSeparator);
-    msg.append("                              everything after -- goes to the script unchanged").append(lineSeparator);
-    msg.append("  -format <type>              write the result to stdout as SVG, Base64,").append(lineSeparator);
-    msg.append("                              ExpressionJSON, Table, or a raster format such as").append(lineSeparator);
-    msg.append("                              PNG/JPEG/GIF/BMP/TIFF/PNM (raster needs AWT)").append(lineSeparator);
-    msg.append("  -charset <encoding>         encoding for the output and for reading the script").append(lineSeparator);
-    msg.append("  -linewise                   run the code once per line of stdin; the line is").append(lineSeparator);
-    msg.append("                              $ScriptInputString (also $ScriptLine)").append(lineSeparator);
-    msg.append("  -print [all]                for a script: print the last result, or every result").append(lineSeparator);
-    msg.append("  -timeout <secs> [value]     limit each evaluation (each statement of a script);").append(lineSeparator);
-    msg.append("                              an expired one gives value, or $TimedOut").append(lineSeparator);
-    msg.append("  -l, -local [kernelpath]     accepted and ignored - symjascript is always local").append(lineSeparator);
-    msg.append("  -initfile <file>            evaluate an extra file at start-up (repeatable)").append(lineSeparator);
-    msg.append("  -noinit                     skip Kernel/init.m and the Autoload directories").append(lineSeparator);
+    msg.append("  --                          with -function: same as -args; after a script file:")
+        .append(lineSeparator);
+    msg.append("                              everything after -- goes to the script unchanged")
+        .append(lineSeparator);
+    msg.append("  -format <type>              write the result to stdout as SVG, Base64,")
+        .append(lineSeparator);
+    msg.append("                              ExpressionJSON, Table, or a raster format such as")
+        .append(lineSeparator);
+    msg.append("                              PNG/JPEG/GIF/BMP/TIFF/PNM (raster needs AWT)")
+        .append(lineSeparator);
+    msg.append("  -charset <encoding>         encoding for the output and for reading the script")
+        .append(lineSeparator);
+    msg.append("  -linewise                   run the code once per line of stdin; the line is")
+        .append(lineSeparator);
+    msg.append("                              $ScriptInputString (also $ScriptLine)")
+        .append(lineSeparator);
+    msg.append("  -print [all]                for a script: print the last result, or every result")
+        .append(lineSeparator);
+    msg.append("  -timeout <secs> [value]     limit each evaluation (each statement of a script);")
+        .append(lineSeparator);
+    msg.append("                              an expired one gives value, or $TimedOut")
+        .append(lineSeparator);
+    msg.append("  -l, -local [kernelpath]     accepted and ignored - symjascript is always local")
+        .append(lineSeparator);
+    msg.append("  -initfile <file>            evaluate an extra file at start-up (repeatable)")
+        .append(lineSeparator);
+    msg.append("  -noinit                     skip Kernel/init.m and the Autoload directories")
+        .append(lineSeparator);
     msg.append("  -d, -default <file>         older spelling of -initfile").append(lineSeparator);
-    msg.append("  -v, -verbose                report which start-up files were loaded").append(lineSeparator);
-    msg.append("  -wstp, -mathlink            kernel link mode; only before a script file").append(lineSeparator);
+    msg.append("  -v, -verbose                report which start-up files were loaded")
+        .append(lineSeparator);
+    msg.append("  -wstp, -mathlink            kernel link mode; only before a script file")
+        .append(lineSeparator);
     msg.append("  -version                    print the version and exit").append(lineSeparator);
     msg.append("  -h, -help                   print this message").append(lineSeparator);
     msg.append(lineSeparator);
-    msg.append("Options are recognised anywhere, also after the script file: `-f report.wls -print`").append(lineSeparator);
-    msg.append("prints the last result. Anything that is not an option is passed to the script as").append(lineSeparator);
-    msg.append("$ScriptCommandLine = {script, args...}; use -- to pass arguments that look like options.").append(lineSeparator);
+    msg.append(
+        "Options are recognised anywhere, also after the script file: `-f report.wls -print`")
+        .append(lineSeparator);
+    msg.append("prints the last result. Anything that is not an option is passed to the script as")
+        .append(lineSeparator);
+    msg.append(
+        "$ScriptCommandLine = {script, args...}; use -- to pass arguments that look like options.")
+        .append(lineSeparator);
     msg.append("").append(lineSeparator);
-    msg.append("  symjascript -code 'Plot[Sin[x],{x,0,10}]' -format SVG > plot.svg").append(lineSeparator);
+    msg.append("  symjascript -code 'Plot[Sin[x],{x,0,10}]' -format SVG > plot.svg")
+        .append(lineSeparator);
     msg.append("").append(lineSeparator);
-    msg.append("The exit status is 0 unless Exit[n] sets it; invalid options and missing files give 1.").append(lineSeparator);
+    msg.append(
+        "The exit status is 0 unless Exit[n] sets it; invalid options and missing files give 1.")
+        .append(lineSeparator);
     msg.append("").append(lineSeparator);
-    msg.append("Interactive commands: /exit, /java, /input, /output, /pretty, /traditional,").append(lineSeparator);
-    msg.append("/timeoutoff, /timeouton. Press TAB to complete a function name, ?Name for help.").append(lineSeparator);
+    msg.append("Interactive commands: /exit, /java, /input, /output, /pretty, /traditional,")
+        .append(lineSeparator);
+    msg.append("/timeoutoff, /timeouton. Press TAB to complete a function name, ?Name for help.")
+        .append(lineSeparator);
     msg.append("****+****+****+****+****+****+****+****+****+****+****+****+");
 
     stdout.println(msg.toString());
@@ -898,7 +949,8 @@ public class SymjaScript {
     String source;
     try {
       byte[] bytes = readAllBytes(System.in);
-      source = new String(bytes, fCharset == null ? StandardCharsets.UTF_8 : Charset.forName(fCharset));
+      source =
+          new String(bytes, fCharset == null ? StandardCharsets.UTF_8 : Charset.forName(fCharset));
     } catch (IOException ioe) {
       fail("symjascript: cannot read stdin: " + ioe.getMessage());
       throw ReturnException.RETURN_FALSE;
@@ -1054,16 +1106,16 @@ public class SymjaScript {
 
   /**
    * Evaluate <code>expr</code> within the <code>-timeout</code> limit and answer, when the limit is
-   * reached, the value given to <code>-timeout</code> - or <code>$TimedOut</code>, as
-   * wolframscript does. Whatever was printed before the limit stays printed.
+   * reached, the value given to <code>-timeout</code> - or <code>$TimedOut</code>, as wolframscript
+   * does. Whatever was printed before the limit stays printed.
    *
    * <p>
    * This mirrors <code>ExprEvaluator.evaluateWithTimeout</code> rather than calling it, for two
-   * reasons. That method answers <code>$Aborted</code> for a timeout, which cannot be told apart from
-   * a real <code>Abort[]</code>. And it runs an <code>EvalControlledCallable</code>, which turns every
-   * <code>RuntimeException</code> into <code>$Aborted</code> - including <code>Exit[n]</code>, so a
-   * script run with <code>-timeout</code> could no longer end itself with a status. Here exceptions
-   * cross back to the caller unchanged.
+   * reasons. That method answers <code>$Aborted</code> for a timeout, which cannot be told apart
+   * from a real <code>Abort[]</code>. And it runs an <code>EvalControlledCallable</code>, which
+   * turns every <code>RuntimeException</code> into <code>$Aborted</code> - including
+   * <code>Exit[n]</code>, so a script run with <code>-timeout</code> could no longer end itself
+   * with a status. Here exceptions cross back to the caller unchanged.
    *
    * @param recordInOut whether the evaluation joins the <code>In</code>/<code>Out</code> history,
    *        as an interactive input does and a script statement does not
@@ -1106,7 +1158,9 @@ public class SymjaScript {
     }
   }
 
-  /** The value of an expired <code>-timeout</code>: its optional value, or <code>$TimedOut</code>. */
+  /**
+   * The value of an expired <code>-timeout</code>: its optional value, or <code>$TimedOut</code>.
+   */
   private IExpr timeoutResult(EvalEngine engine) {
     if (fTimeoutValue == null) {
       return S.$TimedOut;
@@ -1242,7 +1296,8 @@ public class SymjaScript {
    * macOS - see oracle/graal#13272. The attempt is made anyway and the {@link UnsatisfiedLinkError}
    * is caught, so the same binary works wherever AWT does.
    */
-  // Only formats with an ImageIO writer on the classpath. WEBP, TGA, ICO and PSD were listed too, but
+  // Only formats with an ImageIO writer on the classpath. WEBP, TGA, ICO and PSD were listed too,
+  // but
   // the TwelveMonkeys plug-ins for them only read, so they could never produce a file.
   private static final String[] RASTER_FORMATS =
       {"PNG", "JPEG", "JPG", "GIF", "BMP", "TIFF", "TIF", "PNM"};
@@ -1326,9 +1381,9 @@ public class SymjaScript {
       }
       System.out.flush();
     } catch (LinkageError awtMissing) {
-      // Native images on macOS have no AWT at all (oracle/graal#13272), so the raster
-      // formats cannot work there. The first failure is an ExceptionInInitializerError, later
-      // ones NoClassDefFoundError; AwtSupport knows both. Anything else is a real fault.
+      // Native images on macOS have no AWT at all (oracle/graal#13272), so the raster formats
+      // cannot work there. The first failure is an ExceptionInInitializerError, later ones
+      // NoClassDefFoundError; AwtSupport knows both. Anything else is a real fault.
       if (!AwtSupport.isMissingNativeLibrary(awtMissing)) {
         throw awtMissing;
       }
