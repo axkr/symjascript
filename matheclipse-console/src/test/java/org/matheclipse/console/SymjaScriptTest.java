@@ -83,8 +83,8 @@ public class SymjaScriptTest {
 
   @Test
   public void aBareFileArgumentIsTheScript(@TempDir Path directory) throws IOException {
-    Path file = script(directory, "args.wls",
-        "#!/usr/bin/env symjascript\nPrint[$ScriptCommandLine];\n");
+    Path file =
+        script(directory, "args.wls", "#!/usr/bin/env symjascript\nPrint[$ScriptCommandLine];\n");
     Run result = run(file.toString(), "2026", "--verbose");
     assertEquals(0, result.status);
     // the script name first, then its own arguments - never the interpreter's options
@@ -107,8 +107,8 @@ public class SymjaScriptTest {
   @Test
   public void aScriptSeesTheWolframLanguageVersion(@TempDir Path directory) throws IOException {
     Path file = script(directory, "version.wls", "Print[$VersionNumber];\n");
-    // A script gates its features on $VersionNumber, so in a script it names the Wolfram Language
-    // version Symja follows...
+    // A script gates its features on $VersionNumber, so in a script it names the WMA version Symja
+    // follows...
     assertEquals("14.1", run("-file", file.toString()).out.trim());
     // ...while -code is Symja talking to its own user, and reports Symja's version
     assertFalse(run("-code", "Print[$VersionNumber]").out.trim().equals("14.1"));
@@ -219,8 +219,8 @@ public class SymjaScriptTest {
 
   @Test
   public void linewiseBindsScriptInputString() {
-    Run result = runWithStdin("ab\ncd\n", "-code", "StringReverse[$ScriptInputString]",
-        "-linewise");
+    Run result =
+        runWithStdin("ab\ncd\n", "-code", "StringReverse[$ScriptInputString]", "-linewise");
     assertEquals("ba\ndc", result.out.trim().replace("\r", ""));
   }
 

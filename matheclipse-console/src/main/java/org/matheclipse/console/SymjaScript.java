@@ -167,7 +167,6 @@ public class SymjaScript {
     Config.BUILTIN_PROTECTED = ISymbol.NOATTRIBUTE;
     Config.JAVA_UNSAFE = true;
     Config.SHORTEN_STRING_LENGTH = 1024;
-    Config.USE_VISJS = true;
     Config.FILESYSTEM_ENABLED = true;
     // Symja owns this process, so Exit[] and Quit[] may end it with a status
     Config.PROCESS_MODE = true;
@@ -841,7 +840,7 @@ public class SymjaScript {
 
     if (file != null) {
       // A script is run the way wolframscript runs one, so that a script which gates on
-      // $VersionNumber sees the Wolfram Language version Symja follows rather than Symja's own.
+      // $VersionNumber sees the script version Symja follows rather than Symja's own.
       Config.WOLFRAMSCRIPT_COMPAT = true;
       runFile(file);
       throw ReturnException.RETURN_TRUE;
@@ -994,7 +993,7 @@ public class SymjaScript {
       return;
     }
     // A script finds its own files through $InputFileName - `ParentDirectory[DirectoryName[
-    // $InputFileName]] // SetDirectory` is how a Wolfram Language application locates itself - so
+    // $InputFileName]] // SetDirectory` is how a script application locates itself - so
     // it has to name the script, absolutely, before a line of it runs.
     EvalEngine engine = fEvaluator.getEvalEngine();
     String inputFileName = engine.get$InputFileName();
