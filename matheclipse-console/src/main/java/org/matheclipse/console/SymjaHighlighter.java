@@ -13,7 +13,7 @@ import org.jline.utils.AttributedStyle;
 import org.matheclipse.core.convert.AST2Expr;
 
 /**
- * JLine3 Highlighter for Mathematica like syntax. Colorizes built-in functions, symbols, constants,
+ * JLine3 Highlighter for WMA like syntax. Colorizes built-in functions, symbols, constants,
  * strings, numbers, and brackets.
  */
 public class SymjaHighlighter implements Highlighter {
