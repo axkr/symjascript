@@ -451,6 +451,9 @@ public class SymjaScript {
     engine.setFileSystemEnabled(true);
     engine.setRecursionLimit(1000);
     engine.setIterationLimit(100_000);
+    // the WLJS notebook picks its socket layer by this flag, and loads that layer into the
+    // evaluation kernel before it hands the flag over the link
+    engine.evaluate(engine.parse("Internal`SymjaQ = True"));
     return KernelLinkServer.serve(packets, frames, engine);
   }
 
