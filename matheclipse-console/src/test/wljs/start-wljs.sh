@@ -9,6 +9,7 @@
 #   SYMJA_DIR         symja_android_library checkout
 #   WLJS_NOTEBOOK_DIR wljs-notebook checkout (WLJSTeam/wljs-notebook, main)
 #   WLJS_LOG          log file (default: target/wljs-notebook.log)
+#   SYMJASCRIPT       kernel binary (default: the JVM launcher; target/symjascript for the native one)
 #
 # Ctrl-C stops the master kernel and the evaluation kernel it launched.
 set -euo pipefail
@@ -18,7 +19,7 @@ GIT_ROOT="$(cd "$CONSOLE_DIR/../.." && pwd)"                   # the directory h
 SYMJA_DIR="${SYMJA_DIR:-$GIT_ROOT/symja_android_library}"
 WLJS_NOTEBOOK_DIR="${WLJS_NOTEBOOK_DIR:-$GIT_ROOT/wljs-notebook}"
 WLJS_LOG="${WLJS_LOG:-$CONSOLE_DIR/target/wljs-notebook.log}"
-SYMJASCRIPT="$CONSOLE_DIR/target/appassembler/bin/symjascript"
+SYMJASCRIPT="${SYMJASCRIPT:-$CONSOLE_DIR/target/appassembler/bin/symjascript}"
 URL="http://127.0.0.1:20560"
 
 build=false
@@ -27,7 +28,7 @@ for arg in "$@"; do
   case "$arg" in
     --build) build=true ;;
     --open) open_browser=true ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -40,6 +41,8 @@ if $build; then
 fi
 
 [ -x "$SYMJASCRIPT" ] || { echo "no $SYMJASCRIPT - run with --build" >&2; exit 1; }
+# the notebook is started from its own directory, so a relative path must be resolved here
+SYMJASCRIPT="$(cd "$(dirname "$SYMJASCRIPT")" && pwd)/$(basename "$SYMJASCRIPT")"
 [ -f "$WLJS_NOTEBOOK_DIR/Scripts/start.wls" ] || { echo "no WLJS checkout at $WLJS_NOTEBOOK_DIR (set WLJS_NOTEBOOK_DIR)" >&2; exit 1; }
 [ -f "$WLJS_NOTEBOOK_DIR/Packages/CSockets/Kernel/Symja.wl" ] || {
   echo "the WLJS checkout has no Symja socket adapter - update it to WLJSTeam/wljs-notebook main" >&2; exit 1; }

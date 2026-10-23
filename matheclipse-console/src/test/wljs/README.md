@@ -17,7 +17,8 @@ Needs, checked out next to this repository (or pointed to with `SYMJA_DIR` and
 `--build` reinstalls symja's parser, core, image and graphtheory modules (with
 the modules they depend on) into `~/.m2` and repackages the console, which is
 what a change in core needs before the notebook sees it. The notebook runs the
-JVM launcher `target/appassembler/bin/symjascript`, not the native binary. The
+JVM launcher `target/appassembler/bin/symjascript`; set `SYMJASCRIPT=target/symjascript`
+for the native binary (`--build` doesn't rebuild that one). The
 notebook takes about 90 s to start; it is ready when the log says
 `Open http://127.0.0.1:20560 in your browser`. Ctrl-C stops both kernels.
 

@@ -381,6 +381,13 @@ public class SymjaScript {
     } else {
       relaunch.add(executable);
     }
+    // a relative path names the binary only from the directory it was started in; a script which
+    // changes the directory before it starts a second kernel needs the absolute one
+    String absolute = absoluteExecutable(executable);
+    if (!absolute.equals(executable)) {
+      relaunch.set(0, absolute);
+      executable = absolute;
+    }
     Config.RELAUNCH_COMMAND = relaunch;
 
     IASTAppendable commandLine = F.ListAlloc(args.length + 1);
@@ -389,6 +396,18 @@ public class SymjaScript {
       commandLine.append(arg);
     }
     Config.COMMAND_LINE = commandLine;
+  }
+
+  /**
+   * The absolute form of an executable given by a relative path, as <code>./bin/symjascript</code>.
+   * A bare name, which is looked up on the <code>PATH</code>, stays as it is.
+   */
+  private static String absoluteExecutable(String executable) {
+    if (executable.indexOf('/') < 0 && executable.indexOf(File.separatorChar) < 0) {
+      return executable;
+    }
+    Path path = Paths.get(executable);
+    return path.isAbsolute() ? executable : path.toAbsolutePath().normalize().toString();
   }
 
   /** Options whose next token is their value, so that token is never a script file. */
@@ -1031,7 +1050,20 @@ public class SymjaScript {
       IExpr expr = ast2Expr.convert(node);
       // -timeout limits each top-level statement; an expired one yields the timeout value and the
       // script goes on with the next statement
-      last = fSeconds > 0 ? evaluateLimited(expr, engine, false) : engine.evaluate(expr);
+      if (fSeconds > 0) {
+        last = evaluateLimited(expr, engine, false);
+      } else {
+        // every statement is a new input: counters and message limits start afresh
+        EvalEngine.setReset(engine);
+        try {
+          last = engine.evaluate(expr);
+        } catch (StackOverflowError soe) {
+          // a recursion deeper than the stack ends this statement, not the script
+          Errors.printMessage(S.$RecursionLimit, "reclim2",
+              F.list(F.ZZ(engine.getRecursionLimit()), expr), engine);
+          last = S.$Aborted;
+        }
+      }
       // between two statements the script is idle, so anything that arrived meanwhile runs here
       EventLoop.INSTANCE.pump(engine);
       if (PRINT_ALL.equals(fPrintMode)) {
