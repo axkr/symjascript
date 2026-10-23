@@ -525,7 +525,8 @@ matheclipse-console\src\test\wljs\start-wljs.cmd --build          # Windows
 - `--build` installs the Symja modules offline (`mvn -o`, so `~/.m2` must already be filled)
   and repackages the console.
 - `--open` opens the browser once the notebook is up.
-- It runs the JVM launcher `target/appassembler/bin/symjascript`.
+- It runs the JVM launcher `target/appassembler/bin/symjascript`; `SYMJASCRIPT=target/symjascript`
+  runs the native binary for both kernels.
 - Other checkout locations: `SYMJA_DIR`, `WLJS_NOTEBOOK_DIR`.
 - Start-up takes about 90 s; the page is at `http://127.0.0.1:20560`. Ports 20560 and 20559 must be
   free.
