@@ -33,6 +33,7 @@ import org.matheclipse.core.eval.TimeConstrainedExecutor;
 import org.matheclipse.core.eval.exception.AbortException;
 import org.matheclipse.core.eval.exception.ExitException;
 import org.matheclipse.core.eval.exception.FailedException;
+import org.matheclipse.core.eval.exception.LimitException;
 import org.matheclipse.core.eval.exception.ReturnException;
 import org.matheclipse.core.eval.exception.Validate;
 import org.matheclipse.core.eval.tasks.EventLoop;
@@ -1048,21 +1049,34 @@ public class SymjaScript {
     IExpr last = F.NIL;
     for (ASTNode node : nodes) {
       IExpr expr = ast2Expr.convert(node);
-      // -timeout limits each top-level statement; an expired one yields the timeout value and the
-      // script goes on with the next statement
-      if (fSeconds > 0) {
-        last = evaluateLimited(expr, engine, false);
-      } else {
-        // every statement is a new input: counters and message limits start afresh
-        EvalEngine.setReset(engine);
-        try {
-          last = engine.evaluate(expr);
-        } catch (StackOverflowError soe) {
-          // a recursion deeper than the stack ends this statement, not the script
-          Errors.printMessage(S.$RecursionLimit, "reclim2",
-              F.list(F.ZZ(engine.getRecursionLimit()), expr), engine);
-          last = S.$Aborted;
+      try {
+        // -timeout limits each top-level statement; an expired one yields the timeout value and
+        // the script goes on with the next statement
+        if (fSeconds > 0) {
+          last = evaluateLimited(expr, engine, false);
+        } else {
+          // every statement is a new input: counters and message limits start afresh
+          EvalEngine.setReset(engine);
+          try {
+            last = engine.evaluate(expr);
+          } catch (StackOverflowError soe) {
+            // a recursion deeper than the stack ends this statement, not the script
+            Errors.printMessage(S.$RecursionLimit, "reclim2",
+                F.list(F.ZZ(engine.getRecursionLimit()), expr), engine);
+            last = S.$Aborted;
+          }
         }
+      } catch (AbortException abort) {
+        // Abort[] ends the whole script, which answers $Aborted
+        printOneResult(S.$Aborted);
+        return;
+      } catch (FailedException failed) {
+        last = S.$Failed;
+      } catch (LimitException limit) {
+        // a recursion or iteration limit ends this statement, not the script
+        stderr.println(limit.getMessage() != null ? limit.getMessage() : limit.toString());
+        stderr.flush();
+        last = S.$Aborted;
       }
       // between two statements the script is idle, so anything that arrived meanwhile runs here
       EventLoop.INSTANCE.pump(engine);

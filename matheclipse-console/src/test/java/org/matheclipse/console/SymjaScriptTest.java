@@ -66,6 +66,39 @@ public class SymjaScriptTest {
     return file;
   }
 
+  /**
+   * Parallel kernels are separate processes of this interpreter: two jobs sent to two kernels run
+   * in two other processes, and a kernel knows only what it is sent.
+   */
+  @Test
+  public void parallelKernelsAreSeparateProcesses(@TempDir Path directory) throws IOException {
+    Path file = script(directory, "kernels.wls", String.join("\n", //
+        "k = LaunchKernels[2];", //
+        "Print[Length[k], \" \", Length[Kernels[]]];", //
+        "ids = WaitAll[{ParallelSubmit[$ProcessID], ParallelSubmit[$ProcessID]}];", //
+        "Print[Length[Union[ids]], \" \", MemberQ[ids, $ProcessID]];", //
+        "Print[WaitAll[ParallelSubmit[Expand[(v + 2)^2]]]];", //
+        "w = 7; Print[WaitAll[ParallelSubmit[{w}, w^2]]];", //
+        "Print[Length[CloseKernels[]], \" \", Length[Kernels[]]];", //
+        ""));
+    Run result = run("-script", file.toString());
+    assertEquals(0, result.status, result.out);
+    assertEquals("2 2\n2 False\n4+4*v+v^2\n49\n2 0", result.out.trim());
+  }
+
+  /** Abort[] ends a script with $Aborted; an abort inside AbortProtect waits for its end. */
+  @Test
+  public void abortEndsTheScript(@TempDir Path directory) throws IOException {
+    Path file = script(directory, "abort.wls", String.join("\n", //
+        "Print[\"first\"];", //
+        "AbortProtect[Abort[]; Print[\"protected\"]];", //
+        "Print[\"never\"];", //
+        ""));
+    Run result = run("-script", file.toString());
+    assertEquals(0, result.status, result.out);
+    assertEquals("first\nprotected\n$Aborted", result.out.trim());
+  }
+
   @Test
   public void exitEndsTheProcessWithItsCode() {
     assertEquals(3, run("-code", "Exit[3]").status);
