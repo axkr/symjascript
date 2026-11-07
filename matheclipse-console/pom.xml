@@ -178,6 +178,23 @@
 		</dependency>
 
 
+		<!-- Internal`Bag, Internal`LocalizedBlock, Internal`InheritedBlock, ...:
+			the functions of the Internal` context, which packages and the WLJS
+			notebook call (InternalInit.init()). Its log4j backend is left out, as
+			above. -->
+		<dependency>
+			<groupId>org.matheclipse</groupId>
+			<artifactId>matheclipse-internal</artifactId>
+			<version>${symja.version}</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.matheclipse</groupId>
+					<artifactId>matheclipse-logging</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+
+
 		<!-- Used directly by SymjaScript (StringBuilderWriter); declared
 			explicitly rather than relied upon transitively via matheclipse-core. -->
 		<dependency>

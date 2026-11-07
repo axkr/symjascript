@@ -53,6 +53,7 @@ import org.matheclipse.core.interfaces.ISymbol;
 import org.matheclipse.core.io.link.KernelLinkServer;
 import org.matheclipse.graphtheory.GraphTheoryInit;
 import org.matheclipse.image.ImageInit;
+import org.matheclipse.internal.InternalInit;
 import org.matheclipse.parser.client.ParserConfig;
 import org.matheclipse.parser.client.Scanner;
 import org.matheclipse.parser.client.SyntaxError;
@@ -179,6 +180,8 @@ public class SymjaScript {
     GraphTheoryInit.init();
     // Image, ImageData, ImageCrop, ... and the javax.imageio formats live in matheclipse-image
     ImageInit.init();
+    // Internal`Bag, Internal`LocalizedBlock, ... live in matheclipse-internal
+    InternalInit.init();
 
     if (isKernelLink(args)) {
       return runKernelLink();
